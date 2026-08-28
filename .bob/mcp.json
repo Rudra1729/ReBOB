@@ -2,7 +2,8 @@
   "mcpServers": {
     "rebob": {
       "command": "/Users/rudra/Documents/IBM BOB/ReBOB/.venv/bin/python",
-      "args": ["/Users/rudra/Documents/IBM BOB/ReBOB/rebob/server.py"]
+      "args": ["/Users/rudra/Documents/IBM BOB/ReBOB/rebob/server.py"],
+      "cwd": "/Users/rudra/Documents/IBM BOB/ReBOB"
     }
   }
 }
