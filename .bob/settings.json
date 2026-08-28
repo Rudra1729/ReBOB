@@ -1,0 +1,22 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "command": "python C:\\Users\\shree\\OneDrive\\Desktop\\UMass\\ReBOB\\.rebob\\hook.py prompt",
+        "timeout": 8000
+      }
+    ],
+    "PostToolUse": [
+      {
+        "command": "python C:\\Users\\shree\\OneDrive\\Desktop\\UMass\\ReBOB\\.rebob\\hook.py tool",
+        "timeout": 5000
+      }
+    ],
+    "Stop": [
+      {
+        "command": "python C:\\Users\\shree\\OneDrive\\Desktop\\UMass\\ReBOB\\.rebob\\hook.py stop",
+        "timeout": 5000
+      }
+    ]
+  }
+}
