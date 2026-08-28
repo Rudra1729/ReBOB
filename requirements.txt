@@ -1,1 +1,2 @@
 fastmcp
+pytest>=8.0

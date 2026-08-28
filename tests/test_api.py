@@ -1,0 +1,98 @@
+"""Tests for rebob.core.api."""
+
+import json
+
+import pytest
+
+from rebob.core import api
+
+
+class TestMemSearch:
+    def test_returns_markdown_header(self, rebob_tmp_home):
+        result = api.mem_search("auth flow")
+        assert result.startswith("## ReBOB Memory Brief")
+
+    def test_contains_mem_001_and_mem_002(self, rebob_tmp_home):
+        result = api.mem_search("anything")
+        assert "mem_001" in result
+        assert "mem_002" in result
+
+    def test_ignores_query_for_stub(self, rebob_tmp_home):
+        assert api.mem_search("query-a") == api.mem_search("query-b")
+
+
+class TestMemCapture:
+    def test_creates_capture_file(self, rebob_tmp_home):
+        api.mem_capture(session_id="s1", label="test", summary="note")
+        captures = list((rebob_tmp_home / "captures").glob("*.json"))
+        assert len(captures) == 1
+
+    def test_capture_file_contains_payload(self, rebob_tmp_home):
+        api.mem_capture(session_id="s1", label="lbl", summary="sum")
+        path = next((rebob_tmp_home / "captures").glob("*.json"))
+        payload = json.loads(path.read_text())
+        assert payload["session_id"] == "s1"
+        assert payload["label"] == "lbl"
+        assert payload["summary"] == "sum"
+        assert "ts" in payload
+
+    def test_returns_zero_counts(self, rebob_tmp_home):
+        result = api.mem_capture()
+        assert result == {"added": 0, "updated": 0, "rejected": 0, "ids": []}
+
+
+class TestMemStats:
+    def test_returns_expected_keys(self, rebob_tmp_home):
+        result = api.mem_stats()
+        assert set(result.keys()) == {"total", "active", "superseded", "rejected"}
+
+    def test_returns_all_zeros(self, rebob_tmp_home):
+        result = api.mem_stats()
+        assert all(result[k] == 0 for k in result)
+
+
+class TestMemWhy:
+    def test_returns_correct_id(self, rebob_tmp_home):
+        result = api.mem_why("mem_abc")
+        assert result["id"] == "mem_abc"
+
+    def test_returns_stub_content(self, rebob_tmp_home):
+        result = api.mem_why("mem_abc")
+        assert result["content"] == "stub — not implemented yet"
+
+    def test_returns_empty_provenance(self, rebob_tmp_home):
+        result = api.mem_why("mem_abc")
+        assert result["provenance"] == []
+
+
+class TestMemFeedback:
+    @pytest.mark.parametrize("verdict", ["useful", "wrong"])
+    def test_returns_ok_with_verdict(self, rebob_tmp_home, verdict):
+        result = api.mem_feedback("mem_001", verdict)
+        assert result == {"ok": True, "id": "mem_001", "verdict": verdict}
+
+
+class TestSearch:
+    def test_returns_same_brief_as_mem_search(self, rebob_tmp_home):
+        assert api.search("hello", session_id="sess-1") == api.mem_search("hello")
+
+
+class TestRecord:
+    def test_appends_jsonl_line(self, rebob_tmp_home, sample_event):
+        api.record(sample_event)
+        path = rebob_tmp_home / "sessions" / "sess-1.jsonl"
+        assert path.exists()
+        lines = path.read_text().strip().splitlines()
+        assert len(lines) == 1
+        assert json.loads(lines[0]) == sample_event
+
+    def test_appends_multiple_events(self, rebob_tmp_home, sample_event):
+        api.record(sample_event)
+        api.record({**sample_event, "prompt": "world"})
+        path = rebob_tmp_home / "sessions" / "sess-1.jsonl"
+        assert len(path.read_text().strip().splitlines()) == 2
+
+    def test_uses_unknown_session_when_missing(self, rebob_tmp_home):
+        api.record({"type": "tool", "tool": "read"})
+        path = rebob_tmp_home / "sessions" / "unknown.jsonl"
+        assert path.exists()
