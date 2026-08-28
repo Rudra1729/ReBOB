@@ -6,7 +6,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-_REBOB_DIR = Path(".rebob")
+_REBOB_DIR = Path(__file__).resolve().parent.parent.parent / ".rebob"
 _CAPTURES_DIR = _REBOB_DIR / "captures"
 _SESSIONS_DIR = _REBOB_DIR / "sessions"
 
