@@ -5,6 +5,8 @@ Signatures must not change without a team-wide agreement.
 server.py and hook.py both import from here.
 """
 
+from rebob.core import api
+
 
 # ---------------------------------------------------------------------------
 # MCP-facing tools (called by Bob via FastMCP)
@@ -17,7 +19,7 @@ def mem_search(
     session_id: str = "",
 ) -> str:
     """Return a markdown memory brief of up to *k* entries within *budget_tokens*."""
-    return ""
+    return api.mem_search(query, k=k, budget_tokens=budget_tokens, session_id=session_id)
 
 
 def mem_capture(
@@ -29,17 +31,17 @@ def mem_capture(
 
     Returns ``{"added": int, "updated": int, "rejected": int, "ids": list[str]}``.
     """
-    return {"added": 0, "updated": 0, "rejected": 0, "ids": []}
+    return api.mem_capture(session_id=session_id, label=label, summary=summary)
 
 
 def mem_stats() -> dict:
     """Return aggregate counts from the memory store."""
-    return {"total": 0, "active": 0, "superseded": 0, "rejected": 0}
+    return api.mem_stats()
 
 
 def mem_why(id: str) -> dict:
     """Explain why a memory entry exists and where it came from."""
-    return {"id": id, "content": "", "provenance": []}
+    return api.mem_why(id)
 
 
 def mem_feedback(id: str, verdict: str) -> dict:
@@ -47,7 +49,7 @@ def mem_feedback(id: str, verdict: str) -> dict:
 
     *verdict* must be ``"useful"`` or ``"wrong"``.
     """
-    return {"ok": True, "id": id, "verdict": verdict}
+    return api.mem_feedback(id, verdict)
 
 
 # ---------------------------------------------------------------------------
@@ -56,9 +58,9 @@ def mem_feedback(id: str, verdict: str) -> dict:
 
 def search(query: str, session_id: str = "") -> str:
     """Return a memory brief for injection into a prompt."""
-    return ""
+    return api.search(query, session_id=session_id)
 
 
 def record(event: dict) -> None:
     """Persist a lifecycle event emitted by the hook."""
-    return
+    api.record(event)
