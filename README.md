@@ -9,6 +9,13 @@ It captures, indexes, and retrieves context so Bob can remember what matters.
 pip install -r requirements.txt
 ```
 
+## Tests
+
+```bash
+pip install -r requirements.txt
+pytest tests/ -v
+```
+
 > **Status:** early scaffolding — stub implementations only.
 
 ## Phase 1 — MCP setup
