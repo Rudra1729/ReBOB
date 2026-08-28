@@ -1,0 +1,9 @@
+{
+  "_comment": "Copy this file to .bob/mcp.json and replace <ABSOLUTE_PATH> with the full absolute path to this repo root (no trailing slash).",
+  "mcpServers": {
+    "rebob": {
+      "command": "python",
+      "args": ["<ABSOLUTE_PATH>/rebob/server.py"]
+    }
+  }
+}
