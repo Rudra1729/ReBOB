@@ -1,0 +1,150 @@
+{
+  "_comment": "Few-shot examples for rebob.core.extract's Granite prompt (Person A). Each example pairs a redacted transcript excerpt -- shaped like assemble.py's output, after redact.py has run over it -- with the atomic memory record(s) extract(transcript, salience) should return for it. One atomic claim per record, per the build plan. memory_type values and their purpose are defined in rebob-architecture.md section 7. Fields shown are the ones extraction itself is responsible for (content, rationale, counter_example, confidence, file_paths, keywords, scope, volatility, sensitivity); resolve.py fills in claim_key/status/version/id/task_id/etc. downstream.",
+  "examples": [
+    {
+      "memory_type": "gotcha",
+      "transcript": [
+        {
+          "turn": 1,
+          "type": "prompt",
+          "session_id": "ex-gotcha-01",
+          "prompt": "The 'article not found' test is failing. GET /articles/999 should 404 but the test says it doesn't."
+        },
+        {
+          "turn": 2,
+          "type": "tool",
+          "session_id": "ex-gotcha-01",
+          "tool_name": "execute_command",
+          "tool_input": { "command": "curl -i http://localhost:8000/articles/999" },
+          "tool_response": "HTTP/1.1 200 OK\nContent-Length: 0\n\n"
+        },
+        {
+          "turn": 3,
+          "type": "prompt",
+          "session_id": "ex-gotcha-01",
+          "prompt": "So it's returning 200 with an empty body instead of 404. Fix the route to return 404 when the article lookup misses."
+        },
+        {
+          "turn": 4,
+          "type": "tool",
+          "session_id": "ex-gotcha-01",
+          "tool_name": "edit_file",
+          "tool_input": { "path": "api/articles.py" },
+          "tool_response": "wrote 6 lines"
+        },
+        {
+          "turn": 5,
+          "type": "stop",
+          "session_id": "ex-gotcha-01",
+          "last_assistant_message": "Fixed -- api/articles.py now returns 404 when the article id doesn't exist. Test passes."
+        }
+      ],
+      "expected_output": [
+        {
+          "memory_type": "gotcha",
+          "content": "GET /articles/{id} returned HTTP 200 with an empty body for a missing article instead of 404.",
+          "rationale": "Discovered when a 404 test failed; curl showed the route silently returning 200 on a missed lookup.",
+          "counter_example": "Assumed a missing article would already 404; it did not until api/articles.py was fixed to check for None and return 404 explicitly.",
+          "file_paths": ["api/articles.py"],
+          "confidence": 0.9,
+          "keywords": ["404", "not found", "empty body", "articles route"],
+          "scope": "repo",
+          "volatility": "durable",
+          "sensitivity": "internal"
+        }
+      ]
+    },
+    {
+      "memory_type": "decision",
+      "transcript": [
+        {
+          "turn": 1,
+          "type": "prompt",
+          "session_id": "ex-decision-01",
+          "prompt": "Should the order total be calculated on the front-end or the back-end?"
+        },
+        {
+          "turn": 2,
+          "type": "tool",
+          "session_id": "ex-decision-01",
+          "tool_name": "grep",
+          "tool_input": { "pattern": "calculateTotal" },
+          "tool_response": "src/cart/Cart.tsx: function calculateTotal(items) { ... }"
+        },
+        {
+          "turn": 3,
+          "type": "prompt",
+          "session_id": "ex-decision-01",
+          "prompt": "Moving it server-side would mean re-validating every existing cart and rewriting the discount logic there too. Let's keep it front-end for now and just add a server-side sanity check on submit."
+        },
+        {
+          "turn": 4,
+          "type": "stop",
+          "session_id": "ex-decision-01",
+          "last_assistant_message": "Keeping calculateTotal client-side in src/cart/Cart.tsx; added a server-side sanity check on order submit instead of a full back-end rewrite."
+        }
+      ],
+      "expected_output": [
+        {
+          "memory_type": "decision",
+          "content": "Order total is calculated client-side in src/cart/Cart.tsx, not on the server.",
+          "rationale": "A full back-end move was rejected because it would require re-validating every existing cart and reimplementing discount logic server-side; a server-side sanity check on submit was added instead.",
+          "counter_example": "Server-side calculation was proposed and rejected due to migration cost.",
+          "file_paths": ["src/cart/Cart.tsx"],
+          "confidence": 0.85,
+          "keywords": ["order total", "calculateTotal", "front-end", "cart"],
+          "scope": "repo",
+          "volatility": "seasonal",
+          "sensitivity": "internal"
+        }
+      ]
+    },
+    {
+      "memory_type": "env_setup",
+      "transcript": [
+        {
+          "turn": 1,
+          "type": "prompt",
+          "session_id": "ex-env-01",
+          "prompt": "make start is failing with 'no such table: users'. How do I get this running locally?"
+        },
+        {
+          "turn": 2,
+          "type": "tool",
+          "session_id": "ex-env-01",
+          "tool_name": "execute_command",
+          "tool_input": { "command": "make start" },
+          "tool_response": "sqlite3.OperationalError: no such table: users"
+        },
+        {
+          "turn": 3,
+          "type": "tool",
+          "session_id": "ex-env-01",
+          "tool_name": "execute_command",
+          "tool_input": { "command": "make setup && make init-db && make start" },
+          "tool_response": "Installing dependencies... done\nInitializing database... done\nServer running on :8000"
+        },
+        {
+          "turn": 4,
+          "type": "stop",
+          "session_id": "ex-env-01",
+          "last_assistant_message": "Running make start directly skips database initialization. The correct order is make setup, then make init-db, then make start."
+        }
+      ],
+      "expected_output": [
+        {
+          "memory_type": "env_setup",
+          "content": "Local dev environment must be started with `make setup` then `make init-db` then `make start`, in that order.",
+          "rationale": "Running `make start` before `make init-db` fails with 'no such table: users' because the database schema hasn't been created yet.",
+          "counter_example": "Running `make start` alone, or before `make init-db`, fails with a sqlite3.OperationalError.",
+          "file_paths": ["Makefile"],
+          "confidence": 0.95,
+          "keywords": ["make setup", "make init-db", "make start", "local dev environment"],
+          "scope": "repo",
+          "volatility": "durable",
+          "sensitivity": "internal"
+        }
+      ]
+    }
+  ]
+}
