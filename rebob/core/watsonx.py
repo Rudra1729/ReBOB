@@ -1,0 +1,146 @@
+"""
+rebob/core/watsonx.py — watsonx.ai client: IAM token, embeddings, generation.
+
+IAM tokens expire in 60 min; we refresh at 55 min.
+Embedding results are cached by SHA-256 content hash under .rebob/embed_cache/.
+Never logs API keys or tokens.
+"""
+
+import hashlib
+import json
+import os
+import time
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
+
+def _load_config() -> dict:
+    """Read required env vars; raise a clear error if any are missing."""
+    keys = ["WATSONX_URL", "WATSONX_PROJECT_ID", "IBM_CLOUD_API_KEY"]
+    cfg = {k: os.getenv(k) for k in keys}
+    missing = [k for k, v in cfg.items() if not v]
+    if missing:
+        raise EnvironmentError(
+            f"Missing required environment variables: {', '.join(missing)}. "
+            "Copy .env.example to .env and fill in your credentials."
+        )
+    cfg["llm_model"] = os.getenv("WATSONX_LLM_MODEL", "ibm/granite-4-h-small")
+    cfg["embed_model"] = os.getenv(
+        "WATSONX_EMBEDDING_MODEL", "ibm/granite-embedding-278m-multilingual"
+    )
+    return cfg
+
+
+# ---------------------------------------------------------------------------
+# IAM token cache
+# ---------------------------------------------------------------------------
+
+_token_cache: dict = {"token": None, "fetched_at": 0.0}
+_TOKEN_TTL = 55 * 60  # refresh before 60-min expiry
+
+
+def get_token() -> str:
+    """Return a valid IAM bearer token, refreshing if older than 55 minutes."""
+    now = time.time()
+    if _token_cache["token"] and (now - _token_cache["fetched_at"]) < _TOKEN_TTL:
+        return _token_cache["token"]
+
+    cfg = _load_config()
+    from ibm_watsonx_ai import Credentials
+    from ibm_watsonx_ai import APIClient
+
+    credentials = Credentials(
+        url=cfg["WATSONX_URL"],
+        api_key=cfg["IBM_CLOUD_API_KEY"],
+    )
+    client = APIClient(credentials=credentials, project_id=cfg["WATSONX_PROJECT_ID"])
+    # The SDK manages its own token internally; we extract it for caching.
+    token = client.token
+
+    _token_cache["token"] = token
+    _token_cache["fetched_at"] = time.time()
+    return token
+
+
+# ---------------------------------------------------------------------------
+# Embedding cache helpers
+# ---------------------------------------------------------------------------
+
+def _cache_dir() -> Path:
+    d = Path(".rebob") / "embed_cache"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _cache_path(text: str) -> Path:
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return _cache_dir() / f"{digest}.json"
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def embed(text: str) -> list:
+    """Return a float embedding for *text*, using a local cache to avoid repeat calls."""
+    cache_file = _cache_path(text)
+    cfg = _load_config()
+
+    if cache_file.exists():
+        cached = json.loads(cache_file.read_text(encoding="utf-8"))
+        if cached.get("model") == cfg["embed_model"]:
+            return cached["embedding"]
+
+    from ibm_watsonx_ai import Credentials
+    from ibm_watsonx_ai.foundation_models import Embeddings
+
+    credentials = Credentials(
+        url=cfg["WATSONX_URL"],
+        api_key=cfg["IBM_CLOUD_API_KEY"],
+    )
+    embedder = Embeddings(
+        model_id=cfg["embed_model"],
+        credentials=credentials,
+        project_id=cfg["WATSONX_PROJECT_ID"],
+    )
+    result = embedder.embed_documents([text])
+    # SDK returns list of lists
+    embedding = result[0] if isinstance(result[0], list) else list(result[0])
+
+    cache_file.write_text(
+        json.dumps({"embedding": embedding, "model": cfg["embed_model"]}),
+        encoding="utf-8",
+    )
+    return embedding
+
+
+def generate(prompt: str, *, max_tokens: int = 2048, temperature: float = 0.1) -> str:
+    """Generate text with Granite via watsonx.ai. Returns the generated string."""
+    cfg = _load_config()
+
+    from ibm_watsonx_ai import Credentials
+    from ibm_watsonx_ai.foundation_models import ModelInference
+    from ibm_watsonx_ai.metanames import GenTextParamsMetaNames as Params
+
+    credentials = Credentials(
+        url=cfg["WATSONX_URL"],
+        api_key=cfg["IBM_CLOUD_API_KEY"],
+    )
+    model = ModelInference(
+        model_id=cfg["llm_model"],
+        credentials=credentials,
+        project_id=cfg["WATSONX_PROJECT_ID"],
+        params={
+            Params.MAX_NEW_TOKENS: max_tokens,
+            Params.TEMPERATURE: temperature,
+            Params.DECODING_METHOD: "greedy",
+        },
+    )
+    response = model.generate_text(prompt=prompt)
+    return response if isinstance(response, str) else str(response)
