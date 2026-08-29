@@ -14,6 +14,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from rebob.core.paths import rebob_home
+
 load_dotenv()
 
 # ---------------------------------------------------------------------------
@@ -73,7 +75,7 @@ def get_token() -> str:
 # ---------------------------------------------------------------------------
 
 def _cache_dir() -> Path:
-    d = Path(".rebob") / "embed_cache"
+    d = rebob_home() / "embed_cache"
     d.mkdir(parents=True, exist_ok=True)
     return d
 

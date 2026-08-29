@@ -43,26 +43,17 @@ class HookBehaviorTests(unittest.TestCase):
         self.tmpdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmpdir.cleanup)
         self.cwd = self.tmpdir.name
-        self.sessions_dir = HOOK_PATH.parent / "sessions"
+        # Sessions are stored in the project cwd's .rebob/ (rebob_home).
+        self.sessions_dir = Path(self.cwd) / ".rebob" / "sessions"
 
     def sessions_file(self, session_id):
         return self.sessions_dir / f"{session_id}.jsonl"
 
     def tearDown(self):
-        # hook.py always writes next to itself (.rebob/sessions/), not cwd,
-        # so clean up anything a test created there.
-        for f in getattr(self, "_written_files", []):
-            if f.exists():
-                f.unlink()
-
-    def track(self, path):
-        self._written_files = getattr(self, "_written_files", [])
-        self._written_files.append(path)
-        return path
+        pass
 
     def test_prompt_prints_brief_when_available_and_logs_event(self):
         session_id = "test-prompt-001"
-        self.track(self.sessions_file(session_id))
 
         result = run_hook(
             HOOK_PATH, ["prompt"],
@@ -83,7 +74,6 @@ class HookBehaviorTests(unittest.TestCase):
 
     def test_tool_event_is_silent_but_logs(self):
         session_id = "test-tool-001"
-        self.track(self.sessions_file(session_id))
 
         result = run_hook(
             HOOK_PATH, ["tool"],
@@ -101,7 +91,6 @@ class HookBehaviorTests(unittest.TestCase):
 
     def test_stop_event_is_silent_but_logs(self):
         session_id = "test-stop-001"
-        self.track(self.sessions_file(session_id))
 
         result = run_hook(
             HOOK_PATH, ["stop"],
@@ -117,7 +106,6 @@ class HookBehaviorTests(unittest.TestCase):
 
     def test_multiple_events_append_not_overwrite(self):
         session_id = "test-append-001"
-        self.track(self.sessions_file(session_id))
 
         run_hook(HOOK_PATH, ["prompt"], json.dumps({"session_id": session_id, "prompt": "one"}), self.cwd)
         run_hook(HOOK_PATH, ["tool"], json.dumps({"session_id": session_id, "tool": "x"}), self.cwd)
@@ -137,12 +125,10 @@ class HookBehaviorTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
 
     def test_missing_argv_defaults_gracefully(self):
-        self.track(self.sessions_file("unknown"))
         result = run_hook(HOOK_PATH, [], json.dumps({}), self.cwd)
         self.assertEqual(result.returncode, 0)
 
     def test_missing_session_id_falls_back_to_unknown(self):
-        self.track(self.sessions_file("unknown"))
         result = run_hook(HOOK_PATH, ["tool"], json.dumps({"tool": "x"}), self.cwd)
         self.assertEqual(result.returncode, 0)
         events = read_jsonl(self.sessions_file("unknown"))
@@ -150,7 +136,6 @@ class HookBehaviorTests(unittest.TestCase):
 
     def test_unicode_in_prompt_is_preserved_and_does_not_crash(self):
         session_id = "test-unicode-001"
-        self.track(self.sessions_file(session_id))
         payload = json.dumps({"session_id": session_id, "prompt": "café — emoji 🚀 中文"})
 
         result = run_hook(HOOK_PATH, ["prompt"], payload, self.cwd)

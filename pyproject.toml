@@ -21,3 +21,6 @@ rebob = "rebob.cli:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["rebob*"]
+
+[tool.setuptools.package-data]
+rebob = ["templates/*"]

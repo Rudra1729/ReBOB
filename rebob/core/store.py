@@ -16,8 +16,19 @@ from typing import Optional
 
 import numpy as np
 
-_DB_DIR = Path(".rebob")
-_DB_PATH = _DB_DIR / "rebob.db"
+from rebob.core.paths import rebob_home
+
+# Monkeypatched in tests via conftest.
+_DB_DIR: Path | None = None
+_DB_PATH: Path | None = None
+
+
+def _get_db_dir() -> Path:
+    return _DB_DIR if _DB_DIR is not None else rebob_home()
+
+
+def _get_db_path() -> Path:
+    return _DB_PATH if _DB_PATH is not None else _get_db_dir() / "rebob.db"
 
 _FULL_SCHEMA = """
 CREATE TABLE IF NOT EXISTS memory (
@@ -78,12 +89,12 @@ CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts
 
 def db_path() -> Path:
     """Return the path to the SQLite database file."""
-    return _DB_PATH
+    return _get_db_path()
 
 
 def _connect() -> sqlite3.Connection:
-    _DB_DIR.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(_DB_PATH)
+    _get_db_dir().mkdir(parents=True, exist_ok=True)
+    con = sqlite3.connect(_get_db_path())
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA foreign_keys=ON")
@@ -92,7 +103,7 @@ def _connect() -> sqlite3.Connection:
 
 def init_db() -> None:
     """Create .rebob/ and initialise the SQLite schema if not already present."""
-    _DB_DIR.mkdir(parents=True, exist_ok=True)
+    _get_db_dir().mkdir(parents=True, exist_ok=True)
     con = _connect()
     con.executescript(_FULL_SCHEMA)
     con.commit()
@@ -210,10 +221,10 @@ def count_by_status() -> dict:
 
 def append_vector(embedding: list) -> int:
     """Append one float32 row to .rebob/vectors.npy. Returns 0-based row index."""
-    _DB_DIR.mkdir(parents=True, exist_ok=True)
+    _get_db_dir().mkdir(parents=True, exist_ok=True)
     vec = np.array(embedding, dtype=np.float32)
     dim = vec.shape[0]
-    npy_path = _DB_DIR / "vectors.npy"
+    npy_path = _get_db_dir() / "vectors.npy"
 
     if npy_path.exists():
         existing = np.load(str(npy_path))
@@ -271,7 +282,7 @@ def load_vectors() -> tuple:
 
     array shape: (N, dim) float32.  If missing or empty, returns (None, False).
     """
-    npy_path = _DB_DIR / "vectors.npy"
+    npy_path = _get_db_dir() / "vectors.npy"
     if not npy_path.exists():
         return None, False
     try:

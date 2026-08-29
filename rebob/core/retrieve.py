@@ -25,11 +25,17 @@ from typing import Optional
 
 import numpy as np
 
+from rebob.core.paths import rebob_home
+
 # ---------------------------------------------------------------------------
 # Paths (monkeypatchable in tests)
 # ---------------------------------------------------------------------------
 
-_INJECTED_DIR = Path(".rebob") / "injected"
+_INJECTED_DIR: Path | None = None
+
+
+def _get_injected_dir() -> Path:
+    return _INJECTED_DIR if _INJECTED_DIR is not None else rebob_home() / "injected"
 
 
 # ---------------------------------------------------------------------------
@@ -39,8 +45,8 @@ _INJECTED_DIR = Path(".rebob") / "injected"
 def _injected_path(session_id: str) -> Path:
     if not session_id:
         return Path("/dev/null")
-    _INJECTED_DIR.mkdir(parents=True, exist_ok=True)
-    return _INJECTED_DIR / f"{session_id}.json"
+    _get_injected_dir().mkdir(parents=True, exist_ok=True)
+    return _get_injected_dir() / f"{session_id}.json"
 
 
 def load_injected(session_id: str) -> set:
