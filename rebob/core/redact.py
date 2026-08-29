@@ -15,24 +15,44 @@ from collections import Counter
 # Pattern registry  (name → compiled regex, replacement)
 # ---------------------------------------------------------------------------
 
+def _env_secret_repl(m: re.Match) -> str:
+    """Replace env-style assignment, keeping the key label."""
+    text = m.group(0)
+    if "=" in text:
+        return text.split("=", 1)[0] + "=[REDACTED_SECRET]"
+    if ":" in text:
+        return text.split(":", 1)[0] + ":[REDACTED_SECRET]"
+    return "[REDACTED_SECRET]"
+
+
 # Order matters: more-specific patterns run before catch-all api_key.
-_PATTERNS: list[tuple[str, re.Pattern, str]] = [
+_PATTERNS: list[tuple[str, re.Pattern, object]] = [
     # Bearer JWT tokens — must run before api_key
-    # JWTs are base64url segments separated by dots
     (
         "bearer_token",
-        re.compile(r"Bearer\s+eyJ[A-Za-z0-9_\-\.]+",
-                   re.IGNORECASE),
+        re.compile(r"Bearer\s+eyJ[A-Za-z0-9_\-\.]+", re.IGNORECASE),
         "[REDACTED_BEARER]",
+    ),
+    # JSON / CLI output: {"apikey": "..."}
+    (
+        "json_apikey",
+        re.compile(r'(?i)"(?:apikey|api_key)"\s*:\s*"[^"]+"'),
+        lambda m: re.sub(r':\s*"[^"]*"', ': "[REDACTED_SECRET]"', m.group(0)),
+    ),
+    # AWS access key id (20 chars, starts with AKIA)
+    (
+        "aws_access_key",
+        re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
+        "[REDACTED_AWS_KEY]",
     ),
     # Shell / .env assignment patterns for common secret names
     (
         "env_secret",
         re.compile(
-            r"(?i)(SECRET|API_KEY|APIKEY|ACCESS_KEY|PASSWORD|PASSWD|TOKEN|AUTH)"
-            r"\s*[=:]\s*\S+",
+            r"(?i)[\w-]*(?:SECRET|API_KEY|APIKEY|ACCESS_KEY|PASSWORD|PASSWD|TOKEN|AUTH)"
+            r"[\w-]*\s*[=:]\s*\S+",
         ),
-        lambda m: m.group(0).split("=")[0].split(":")[0] + "=[REDACTED_SECRET]",
+        _env_secret_repl,
     ),
     # Email addresses
     (
@@ -120,16 +140,15 @@ def redact(text: str) -> tuple[str, list[str]]:
 
     # Apply patterns in registry order (bearer_token before api_key)
     for name, pat, repl in _PATTERNS:
+        matches = list(pat.finditer(result))
+        if not matches:
+            continue
         if callable(repl):
             new_text = pat.sub(repl, result)
-            if new_text != result:
-                matched_names.append(name)
-                result = new_text
         else:
-            new_text, count = pat.subn(repl, result)
-            if count:
-                matched_names.append(name)
-                result = new_text
+            new_text = pat.sub(repl, result)
+        matched_names.extend([name] * len(matches))
+        result = new_text
 
     # High-entropy check on the already-partially-redacted string
     result, entropy_hit = _redact_high_entropy(result)
