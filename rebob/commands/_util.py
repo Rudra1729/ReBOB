@@ -22,9 +22,17 @@ def hook_command(python: Path, hook_script: Path, hook_type: str) -> str:
 
 
 def render_template(name: str, **replacements: str) -> str:
+    """Render a template that will be parsed as JSON.
+
+    Values are JSON-escaped before substitution -- Windows paths contain
+    backslashes, which are JSON escape characters, so a raw string.replace()
+    of e.g. "C:\\Users\\..." into a template's quoted string produces
+    invalid JSON (json.decoder.JSONDecodeError: Invalid \\escape).
+    """
     text = load_template(name)
     for key, value in replacements.items():
-        text = text.replace(f"{{{{{key}}}}}", value)
+        escaped = json.dumps(value)[1:-1]
+        text = text.replace(f"{{{{{key}}}}}", escaped)
     return text
 
 

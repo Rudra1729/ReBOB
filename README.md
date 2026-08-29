@@ -3,11 +3,27 @@
 ReBOB gives [IBM Bob](https://www.ibm.com/products/watson) persistent memory across conversations.
 It captures, indexes, and retrieves context so Bob can remember what matters.
 
-## Quick start
+## Quick start — add ReBOB to a project
 
 ```bash
-pip install -r requirements.txt
+cd /path/to/your/project                     # the project you want memory for
+python -m venv .venv                         # isolate the `rebob` CLI in this project
+.venv\Scripts\activate                       # Windows (use `source .venv/bin/activate` on macOS/Linux)
+pip install -e /path/to/this/ReBOB/repo      # installs the `rebob` CLI into .venv
+rebob init                                   # prompts for watsonx credentials, writes .env/.bob/.rebob
+rebob doctor                                 # confirms everything's wired up correctly
 ```
+
+A venv's `Scripts`/`bin` folder is put on PATH automatically when activated, so `rebob` resolves
+correctly regardless of how the system Python is set up. Without a venv, `pip install` may put the
+`rebob` command somewhere not on your PATH, and running `rebob` will fail with
+"not recognized as the name of a cmdlet" (Windows) or "command not found" (macOS/Linux).
+
+Then open that project in Bob IDE — Settings → MCP → enable **"MCP tools for new tasks"** — and
+start a task. Every prompt/tool-use/stop event is now recorded, and the memory brief for a prompt
+is injected automatically. Run `/mem` in a task to explicitly capture that session into memory.
+
+`rebob init` is safe to re-run — it asks before overwriting anything that already exists.
 
 ## Tests
 
@@ -15,21 +31,3 @@ pip install -r requirements.txt
 pip install -r requirements.txt
 pytest tests/ -v
 ```
-
-> **Status:** early scaffolding — stub implementations only.
-
-## Phase 1 — MCP setup
-
-### Test locally
-
-```bash
-pip install -r requirements.txt
-python rebob/server.py        # starts stdio server; creates .rebob/rebob.db
-```
-
-### Connect Bob (Person B)
-
-1. Copy `rebob/mcp.example.json` → `.bob/mcp.json`
-2. Replace `<ABSOLUTE_PATH>` with the absolute path to this repo root
-3. In Bob Settings → MCP, enable **"MCP tools for new tasks"**
-4. Start a new Bob task and ask: `call mem_search with query="test"`
