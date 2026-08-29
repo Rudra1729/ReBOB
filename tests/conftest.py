@@ -3,6 +3,7 @@
 import pytest
 
 from rebob.core import api, store
+from rebob.core import retrieve as retrieve_mod
 
 
 @pytest.fixture
@@ -14,6 +15,7 @@ def rebob_tmp_home(tmp_path, monkeypatch):
     monkeypatch.setattr(api, "_REBOB_DIR", rebob_dir)
     monkeypatch.setattr(api, "_CAPTURES_DIR", rebob_dir / "captures")
     monkeypatch.setattr(api, "_SESSIONS_DIR", rebob_dir / "sessions")
+    monkeypatch.setattr(retrieve_mod, "_INJECTED_DIR", rebob_dir / "injected")
     return rebob_dir
 
 
