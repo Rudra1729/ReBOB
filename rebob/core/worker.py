@@ -18,19 +18,19 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from dotenv import load_dotenv
-
 load_dotenv()
 
 
 def _sessions_dir() -> Path:
-    from rebob.core.store import _DB_DIR
-    return _DB_DIR / "sessions"
+    from rebob.core.store import _get_db_dir
+
+    return _get_db_dir() / "sessions"
 
 
 def _pending_dir() -> Path:
-    from rebob.core.store import _DB_DIR
-    return _DB_DIR / "pending"
+    from rebob.core.store import _get_db_dir
+
+    return _get_db_dir() / "pending"
 
 
 # ---------------------------------------------------------------------------

@@ -3,17 +3,16 @@
 from __future__ import annotations
 
 import getpass
-import sys
 from pathlib import Path
 
-import rebob.server
-
 from rebob.commands._util import (
+    build_mcp,
+    build_settings,
     confirm_overwrite,
     ensure_gitignore_entries,
-    hook_command,
     load_template,
-    render_template,
+    resolve_python,
+    write_json,
     write_text,
 )
 from rebob.core.paths import project_root
@@ -33,9 +32,8 @@ def _prompt(label: str, default: str = "", *, secret: bool = False) -> str:
 
 def run_init() -> None:
     root = project_root()
-    python = Path(sys.executable).resolve()
+    python = resolve_python()
     hook_script = (root / ".rebob" / "hook.py").resolve()
-    server_script = Path(rebob.server.__file__).resolve()
 
     print(f"ReBOB init — project: {root}")
     print(f"Python: {python}")
@@ -64,26 +62,14 @@ def run_init() -> None:
     write_text(hook_script, hook_py, overwrite=True)
     print(f"  wrote {hook_script}")
 
-    mcp_body = render_template(
-        "mcp.json",
-        PYTHON=str(python),
-        SERVER_SCRIPT=str(server_script),
-        PROJECT_ROOT=str(root),
-    )
     mcp_path = root / ".bob" / "mcp.json"
     if not mcp_path.exists() or confirm_overwrite(mcp_path):
-        write_text(mcp_path, mcp_body, overwrite=True)
+        write_json(mcp_path, build_mcp(python, root))
         print(f"  wrote {mcp_path}")
 
-    settings_body = render_template(
-        "settings.json",
-        HOOK_PROMPT=hook_command(python, hook_script, "prompt"),
-        HOOK_TOOL=hook_command(python, hook_script, "tool"),
-        HOOK_STOP=hook_command(python, hook_script, "stop"),
-    )
     settings_path = root / ".bob" / "settings.json"
     if not settings_path.exists() or confirm_overwrite(settings_path):
-        write_text(settings_path, settings_body, overwrite=True)
+        write_json(settings_path, build_settings(python, hook_script))
         print(f"  wrote {settings_path}")
 
     mem_path = root / ".bob" / "commands" / "mem.md"
