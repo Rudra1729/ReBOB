@@ -49,9 +49,27 @@ def score(transcript: list[dict], explicit: bool = False) -> float:
     return round(min(total, 1.0), 4)
 
 
+_TEXT_FIELDS = ("prompt", "tool_response", "output", "last_assistant_message", "tool_input", "input")
+
+
+def _stringify(value) -> str:
+    if isinstance(value, dict):
+        return " ".join(_stringify(v) for v in value.values())
+    if isinstance(value, list):
+        return " ".join(_stringify(v) for v in value)
+    if value is None:
+        return ""
+    return str(value)
+
+
 def _entry_text(entry: dict) -> str:
-    parts = [str(entry.get(key, "")) for key in ("prompt", "output", "input")]
-    return " ".join(p for p in parts if p)
+    """Flatten every text-bearing field on an entry into one string.
+
+    Real Bob hook payloads use ``tool_input``/``tool_response`` (and
+    ``last_assistant_message`` on stop events); ``input``/``output`` are
+    kept too for hand-built transcripts that don't come from a real hook.
+    """
+    return " ".join(_stringify(entry.get(key)) for key in _TEXT_FIELDS if entry.get(key))
 
 
 def _error_then_resolution(transcript: list[dict]) -> float:
@@ -84,19 +102,21 @@ def _has_rollback(transcript: list[dict]) -> float:
     for entry in transcript:
         if _ROLLBACK_PATTERN.search(_entry_text(entry)):
             return 1.0
-        if _ROLLBACK_PATTERN.search(str(entry.get("tool", ""))):
-            return 1.0
+        for key in ("tool_name", "tool"):
+            if _ROLLBACK_PATTERN.search(str(entry.get(key, ""))):
+                return 1.0
     return 0.0
 
 
 def _files_touched_ratio(transcript: list[dict]) -> float:
     files = set()
     for entry in transcript:
-        input_ = entry.get("input")
-        if isinstance(input_, dict):
-            for key in ("path", "file", "file_path"):
-                if input_.get(key):
-                    files.add(str(input_[key]))
+        for input_key in ("tool_input", "input"):
+            candidate = entry.get(input_key)
+            if isinstance(candidate, dict):
+                for key in ("path", "file", "file_path"):
+                    if candidate.get(key):
+                        files.add(str(candidate[key]))
     return min(len(files) / _FILES_TOUCHED_CAP, 1.0)
 
 
