@@ -22,23 +22,40 @@ class TestMemSearch:
 
 
 class TestMemCapture:
-    def test_creates_capture_file(self, rebob_tmp_home):
-        api.mem_capture(session_id="s1", label="test", summary="note")
-        captures = list((rebob_tmp_home / "captures").glob("*.json"))
-        assert len(captures) == 1
-
-    def test_capture_file_contains_payload(self, rebob_tmp_home):
-        api.mem_capture(session_id="s1", label="lbl", summary="sum")
-        path = next((rebob_tmp_home / "captures").glob("*.json"))
-        payload = json.loads(path.read_text())
-        assert payload["session_id"] == "s1"
-        assert payload["label"] == "lbl"
-        assert payload["summary"] == "sum"
-        assert "ts" in payload
-
-    def test_returns_zero_counts(self, rebob_tmp_home):
+    def test_returns_error_when_no_session(self, rebob_tmp_home):
         result = api.mem_capture()
-        assert result == {"added": 0, "updated": 0, "rejected": 0, "ids": []}
+        assert result["added"] == 0
+        assert result.get("error") == "no session found"
+
+    def test_delegates_to_worker(self, rebob_tmp_home, monkeypatch):
+        sessions_dir = rebob_tmp_home / "sessions"
+        sessions_dir.mkdir(parents=True, exist_ok=True)
+        (sessions_dir / "s1.jsonl").write_text(
+            '{"hook":"prompt","session_id":"s1","prompt":"hi"}\n',
+            encoding="utf-8",
+        )
+        expected = {"added": 2, "updated": 0, "rejected": 0, "ids": ["mem_a", "mem_b"]}
+        monkeypatch.setattr(
+            "rebob.core.worker.process_session",
+            lambda sid, **kw: expected if sid == "s1" else {},
+        )
+        result = api.mem_capture(session_id="s1", label="test", summary="note")
+        assert result == expected
+
+    def test_uses_latest_session_when_id_empty(self, rebob_tmp_home, monkeypatch):
+        sessions_dir = rebob_tmp_home / "sessions"
+        sessions_dir.mkdir(parents=True, exist_ok=True)
+        (sessions_dir / "older.jsonl").write_text('{"hook":"prompt"}\n', encoding="utf-8")
+        (sessions_dir / "newer.jsonl").write_text('{"hook":"prompt"}\n', encoding="utf-8")
+        captured = {}
+
+        def fake_process(sid, **kw):
+            captured["session_id"] = sid
+            return {"added": 1, "updated": 0, "rejected": 0, "ids": ["mem_x"]}
+
+        monkeypatch.setattr("rebob.core.worker.process_session", fake_process)
+        api.mem_capture()
+        assert captured["session_id"] == "newer"
 
 
 class TestMemStats:

@@ -1,5 +1,11 @@
 """
-rebob/core/api.py — Phase 1 implementations shared by contract, server, and hook.
+rebob/core/api.py — Phase 2 implementations shared by contract, server, and hook.
+
+mem_search / search   → Phase 3 stubs (retrieval pipeline not yet built)
+mem_capture           → triggers real write-path pipeline via worker
+mem_stats             → live counts from SQLite
+mem_why / mem_feedback → Phase 3 stubs
+record                → appends event to .rebob/sessions/<id>.jsonl
 """
 
 import json
@@ -10,12 +16,16 @@ _REBOB_DIR = Path(__file__).resolve().parent.parent.parent / ".rebob"
 _CAPTURES_DIR = _REBOB_DIR / "captures"
 _SESSIONS_DIR = _REBOB_DIR / "sessions"
 
-_MEMORY_BRIEF = (
+_MEMORY_BRIEF_STUB = (
     "## ReBOB Memory Brief\n\n"
     "- [mem_001] Galaxium uses SQLite for article storage.\n"
     "- [mem_002] Run `make setup` before `make start`.\n"
 )
 
+
+# ---------------------------------------------------------------------------
+# MCP tools
+# ---------------------------------------------------------------------------
 
 def mem_search(
     query: str,
@@ -23,8 +33,8 @@ def mem_search(
     budget_tokens: int = 600,
     session_id: str = "",
 ) -> str:
-    """Return a markdown memory brief of up to *k* entries within *budget_tokens*."""
-    return _MEMORY_BRIEF
+    """Phase 3 stub — returns a placeholder brief until retrieval is implemented."""
+    return _MEMORY_BRIEF_STUB
 
 
 def mem_capture(
@@ -32,37 +42,54 @@ def mem_capture(
     label: str = "",
     summary: str = "",
 ) -> dict:
-    """Distil a session into memory records (stub: writes a capture file)."""
-    _CAPTURES_DIR.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    payload = {
-        "session_id": session_id,
-        "label": label,
-        "summary": summary,
-        "ts": ts,
-    }
-    (_CAPTURES_DIR / f"{ts}.json").write_text(json.dumps(payload, indent=2))
-    return {"added": 0, "updated": 0, "rejected": 0, "ids": []}
+    """Distil a session into memory records via the real write-path pipeline.
+
+    If session_id is empty, uses the most recently modified .jsonl in .rebob/sessions/.
+    """
+    from rebob.core.worker import process_session
+
+    sid = session_id
+    if not sid:
+        sessions_dir = _SESSIONS_DIR
+        if sessions_dir.exists():
+            jsonl_files = sorted(
+                sessions_dir.glob("*.jsonl"),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+            if jsonl_files:
+                sid = jsonl_files[0].stem
+
+    if not sid:
+        return {"added": 0, "updated": 0, "rejected": 0, "ids": [], "error": "no session found"}
+
+    return process_session(sid, explicit=True, label=label, summary=summary)
 
 
 def mem_stats() -> dict:
-    """Return aggregate counts from the memory store."""
-    return {"total": 0, "active": 0, "superseded": 0, "rejected": 0}
+    """Return live aggregate counts from the memory store."""
+    from rebob.core.store import count_by_status, init_db
+    init_db()
+    return count_by_status()
 
 
 def mem_why(id: str) -> dict:
-    """Explain why a memory entry exists and where it came from."""
+    """Phase 3 stub — chain walker not yet implemented."""
     return {"id": id, "content": "stub — not implemented yet", "provenance": []}
 
 
 def mem_feedback(id: str, verdict: str) -> dict:
-    """Record whether a recalled memory was useful or wrong."""
+    """Phase 3 stub — feedback recording not yet implemented."""
     return {"ok": True, "id": id, "verdict": verdict}
 
 
+# ---------------------------------------------------------------------------
+# Hook-facing helpers
+# ---------------------------------------------------------------------------
+
 def search(query: str, session_id: str = "") -> str:
-    """Return a memory brief for injection into a prompt."""
-    return _MEMORY_BRIEF
+    """Phase 3 stub — returns placeholder brief for hook injection."""
+    return _MEMORY_BRIEF_STUB
 
 
 def record(event: dict) -> None:
