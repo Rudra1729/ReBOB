@@ -1,10 +1,11 @@
 """
-rebob/core/api.py — Phase 2 implementations shared by contract, server, and hook.
+rebob/core/api.py — Implementations shared by contract, server, and hook.
 
-mem_search / search   → Phase 3 stubs (retrieval pipeline not yet built)
+mem_search / search   → real retrieval pipeline (rebob.core.retrieve)
 mem_capture           → triggers real write-path pipeline via worker
 mem_stats             → live counts from SQLite
-mem_why / mem_feedback → Phase 3 stubs
+mem_why               → provenance chain walker
+mem_feedback          → signals feedback to store
 record                → appends event to .rebob/sessions/<id>.jsonl
 """
 
@@ -17,13 +18,6 @@ _REBOB_DIR = Path(__file__).resolve().parent.parent.parent / ".rebob"
 _CAPTURES_DIR = _REBOB_DIR / "captures"
 _SESSIONS_DIR = _REBOB_DIR / "sessions"
 
-_MEMORY_BRIEF_STUB = (
-    "## ReBOB Memory Brief\n\n"
-    "- [mem_001] Galaxium uses SQLite for article storage.\n"
-    "- [mem_002] Run `make setup` before `make start`.\n"
-)
-
-
 # ---------------------------------------------------------------------------
 # MCP tools
 # ---------------------------------------------------------------------------
@@ -34,8 +28,12 @@ def mem_search(
     budget_tokens: int = 600,
     session_id: str = "",
 ) -> str:
-    """Phase 3 stub — returns a placeholder brief until retrieval is implemented."""
-    return _MEMORY_BRIEF_STUB
+    """Return a markdown memory brief by running the real retrieval pipeline."""
+    try:
+        from rebob.core.retrieve import retrieve
+        return retrieve(query, k=k, budget_tokens=budget_tokens, session_id=session_id)
+    except Exception:
+        return ""
 
 
 def mem_capture(
@@ -75,12 +73,56 @@ def mem_stats() -> dict:
 
 
 def mem_why(id: str) -> dict:
-    """Phase 3 stub — chain walker not yet implemented."""
-    return {"id": id, "content": "stub — not implemented yet", "provenance": []}
+    """Return provenance for a memory, walking the supersedes chain to the root."""
+    from rebob.core.store import get_memory, init_db
+    init_db()
+
+    root = get_memory(id)
+    if root is None:
+        return {"id": id, "content": None, "error": "not found", "provenance": []}
+
+    provenance = []
+
+    # Walk the supersedes chain backward to find prior versions
+    current = root
+    visited = {id}
+    while current.get("supersedes"):
+        parent_id = current["supersedes"]
+        if parent_id in visited:
+            break  # cycle guard
+        visited.add(parent_id)
+        parent = get_memory(parent_id)
+        if parent is None:
+            break
+        provenance.append({
+            "id": parent_id,
+            "version": parent.get("version"),
+            "status": parent.get("status"),
+            "created_at": parent.get("created_at"),
+        })
+        current = parent
+
+    # Append source provenance from the root record
+    provenance.append({
+        "source_kind": root.get("source_kind"),
+        "task_id": root.get("task_id"),
+        "extractor_model": root.get("extractor_model"),
+    })
+
+    return {
+        "id": id,
+        "content": root.get("content"),
+        "provenance": provenance,
+    }
 
 
 def mem_feedback(id: str, verdict: str) -> dict:
-    """Phase 3 stub — feedback recording not yet implemented."""
+    """Record whether a recalled memory was useful or wrong."""
+    if verdict not in ("useful", "wrong"):
+        return {"ok": False, "id": id, "verdict": verdict, "error": "verdict must be 'useful' or 'wrong'"}
+    from rebob.core.store import update_feedback, init_db
+    init_db()
+    update_feedback(id, verdict)
     return {"ok": True, "id": id, "verdict": verdict}
 
 
@@ -89,8 +131,8 @@ def mem_feedback(id: str, verdict: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def search(query: str, session_id: str = "") -> str:
-    """Phase 3 stub — returns placeholder brief for hook injection."""
-    return _MEMORY_BRIEF_STUB
+    """Return a memory brief for injection into a prompt."""
+    return mem_search(query, session_id=session_id)
 
 
 # msvcrt.locking() is a cross-process lock; two threads in this same process
