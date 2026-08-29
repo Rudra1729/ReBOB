@@ -9,7 +9,7 @@ record                → appends event to .rebob/sessions/<id>.jsonl
 """
 
 import json
-from datetime import datetime, timezone
+import sys
 from pathlib import Path
 
 _REBOB_DIR = Path(__file__).resolve().parent.parent.parent / ".rebob"
@@ -92,10 +92,35 @@ def search(query: str, session_id: str = "") -> str:
     return _MEMORY_BRIEF_STUB
 
 
+def _append_line_locked(f, line: str) -> None:
+    """Append one line with an exclusive lock (parallel hook subprocesses)."""
+    if sys.platform == "win32":
+        import msvcrt
+
+        f.seek(0, 2)
+        msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+        try:
+            f.write(line)
+            f.flush()
+        finally:
+            f.seek(0, 2)
+            msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl
+
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        try:
+            f.write(line)
+            f.flush()
+        finally:
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+
 def record(event: dict) -> None:
     """Persist a lifecycle event emitted by the hook."""
     session_id = event.get("session_id", "unknown")
     _SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
     path = _SESSIONS_DIR / f"{session_id}.jsonl"
+    line = json.dumps(event) + "\n"
     with path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(event) + "\n")
+        _append_line_locked(f, line)

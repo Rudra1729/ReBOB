@@ -113,3 +113,27 @@ class TestRecord:
         api.record({"type": "tool", "tool": "read"})
         path = rebob_tmp_home / "sessions" / "unknown.jsonl"
         assert path.exists()
+
+    def test_concurrent_large_writes_produce_valid_jsonl(self, rebob_tmp_home):
+        """Parallel hook invocations must not interleave JSONL lines."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        session_id = "race-session"
+        events = [
+            {
+                "hook": "tool",
+                "session_id": session_id,
+                "tool_response": "payload-" + ("x" * 9000) + f"-{i}",
+                "seq": i,
+            }
+            for i in range(24)
+        ]
+        with ThreadPoolExecutor(max_workers=12) as pool:
+            list(pool.map(api.record, events))
+
+        path = rebob_tmp_home / "sessions" / f"{session_id}.jsonl"
+        lines = [ln for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+        assert len(lines) == len(events)
+        parsed = [json.loads(ln) for ln in lines]
+        seqs = sorted(e["seq"] for e in parsed)
+        assert seqs == list(range(len(events)))
