@@ -1,0 +1,5 @@
+{"hook": "prompt", "session_id": "fixture-session-001", "prompt": "How do I start the Galaxium app?"}
+{"hook": "tool", "session_id": "fixture-session-001", "tool_name": "run_command", "tool_input": {"command": "make start"}, "tool_response": "ModuleNotFoundError: No module named 'flask'\n\nHint: run make setup first."}
+{"hook": "tool", "session_id": "fixture-session-001", "tool_name": "run_command", "tool_input": {"command": "make setup"}, "tool_response": "Setup complete. Virtualenv ready."}
+{"hook": "tool", "session_id": "fixture-session-001", "tool_name": "run_command", "tool_input": {"command": "make start"}, "tool_response": "Server running on http://localhost:8080"}
+{"hook": "stop", "session_id": "fixture-session-001", "last_assistant_message": "Run make setup before make start; skipping setup leaves the venv incomplete."}
