@@ -1,2 +1,5 @@
 fastmcp
 pytest>=8.0
+python-dotenv
+ibm-watsonx-ai
+numpy
