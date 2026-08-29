@@ -11,9 +11,11 @@ import rebob.server
 from rebob.commands._util import (
     confirm_overwrite,
     ensure_gitignore_entries,
-    hook_command,
     load_template,
-    render_template,
+    merge_mcp_server,
+    merge_rebob_hooks,
+    read_json,
+    write_json,
     write_text,
 )
 from rebob.core.paths import project_root
@@ -64,27 +66,18 @@ def run_init() -> None:
     write_text(hook_script, hook_py, overwrite=True)
     print(f"  wrote {hook_script}")
 
-    mcp_body = render_template(
-        "mcp.json",
-        PYTHON=str(python),
-        SERVER_SCRIPT=str(server_script),
-        PROJECT_ROOT=str(root),
-    )
+    # mcp.json / settings.json are merged, not replaced -- a project may already have
+    # its own MCP servers and hooks configured, and overwriting the whole file would
+    # silently delete them. Only ReBOB's own entries are added or refreshed.
     mcp_path = root / ".bob" / "mcp.json"
-    if not mcp_path.exists() or confirm_overwrite(mcp_path):
-        write_text(mcp_path, mcp_body, overwrite=True)
-        print(f"  wrote {mcp_path}")
+    mcp_data = merge_mcp_server(read_json(mcp_path), python, server_script, root)
+    write_json(mcp_path, mcp_data)
+    print(f"  wrote {mcp_path} (merged)")
 
-    settings_body = render_template(
-        "settings.json",
-        HOOK_PROMPT=hook_command(python, hook_script, "prompt"),
-        HOOK_TOOL=hook_command(python, hook_script, "tool"),
-        HOOK_STOP=hook_command(python, hook_script, "stop"),
-    )
     settings_path = root / ".bob" / "settings.json"
-    if not settings_path.exists() or confirm_overwrite(settings_path):
-        write_text(settings_path, settings_body, overwrite=True)
-        print(f"  wrote {settings_path}")
+    settings_data = merge_rebob_hooks(read_json(settings_path), python, hook_script)
+    write_json(settings_path, settings_data)
+    print(f"  wrote {settings_path} (merged)")
 
     mem_path = root / ".bob" / "commands" / "mem.md"
     if write_text(mem_path, load_template("mem.md")):

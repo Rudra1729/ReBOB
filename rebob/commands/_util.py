@@ -41,6 +41,55 @@ def write_json(path: Path, data: dict) -> None:
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
+def read_json(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+_HOOK_EVENT_TIMEOUTS = {
+    "UserPromptSubmit": ("prompt", 8000),
+    "PostToolUse": ("tool", 5000),
+    "Stop": ("stop", 5000),
+}
+
+
+def merge_mcp_server(mcp: dict, python: Path, server_script: Path, project_root: Path) -> dict:
+    """Set/replace only the "rebob" entry, preserving any other configured MCP servers."""
+    servers = mcp.setdefault("mcpServers", {})
+    servers["rebob"] = {
+        "command": str(python),
+        "args": [str(server_script)],
+        "cwd": str(project_root),
+    }
+    return mcp
+
+
+def merge_rebob_hooks(settings: dict, python: Path, hook_script: Path) -> dict:
+    """Add/replace ReBOB's own hook entries, preserving any other hooks already configured.
+
+    Re-running this (e.g. `rebob init` a second time) must not duplicate ReBOB's own
+    entries -- identify them by hook_script's path appearing in the command string,
+    drop any prior match, then append the current one.
+    """
+    hooks = settings.setdefault("hooks", {})
+    hook_script_str = str(hook_script)
+    for event_type, (hook_type, timeout) in _HOOK_EVENT_TIMEOUTS.items():
+        groups = hooks.setdefault(event_type, [])
+        groups[:] = [
+            g for g in groups
+            if not any(hook_script_str in h.get("command", "") for h in g.get("hooks", []))
+        ]
+        groups.append({
+            "hooks": [{
+                "type": "command",
+                "command": hook_command(python, hook_script, hook_type),
+                "timeout": timeout,
+            }]
+        })
+    return settings
+
+
 def write_text(path: Path, content: str, *, overwrite: bool = False) -> bool:
     """Write *content* to *path*. Returns True if written, False if skipped."""
     if path.exists() and not overwrite:

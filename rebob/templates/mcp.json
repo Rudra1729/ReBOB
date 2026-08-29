@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "rebob": {
-      "command": "{{PYTHON}}",
-      "args": ["{{SERVER_SCRIPT}}"],
-      "cwd": "{{PROJECT_ROOT}}"
-    }
-  }
-}

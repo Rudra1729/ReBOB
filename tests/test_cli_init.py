@@ -34,6 +34,51 @@ class TestInit:
         assert "rebob" in mcp["mcpServers"]
         assert mcp["mcpServers"]["rebob"]["cwd"] == str(project_dir)
 
+    def test_merges_into_existing_mcp_and_settings(self, project_dir):
+        """init must not clobber a project's own MCP servers/hooks (regression: it used to)."""
+        bob_dir = project_dir / ".bob"
+        bob_dir.mkdir()
+        (bob_dir / "mcp.json").write_text(json.dumps({
+            "mcpServers": {"playwright": {"command": "npx", "args": ["-y", "@playwright/mcp@latest"]}}
+        }), encoding="utf-8")
+        (bob_dir / "settings.json").write_text(json.dumps({
+            "hooks": {
+                "SessionStart": [{"hooks": [{"type": "command", "command": "sh preflight.sh", "timeout": 15}]}],
+                "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "sh record.sh", "timeout": 10}]}],
+            }
+        }), encoding="utf-8")
+
+        inputs = iter(["proj-uuid-123", ""])
+        with patch("builtins.input", lambda _: next(inputs)):
+            with patch("getpass.getpass", return_value="fake-api-key"):
+                run_init()
+
+        mcp = json.loads((bob_dir / "mcp.json").read_text())
+        assert "playwright" in mcp["mcpServers"], "init must not delete a project's existing MCP servers"
+        assert "rebob" in mcp["mcpServers"]
+
+        settings = json.loads((bob_dir / "settings.json").read_text())
+        session_start_cmds = [h["command"] for g in settings["hooks"]["SessionStart"] for h in g["hooks"]]
+        assert "sh preflight.sh" in session_start_cmds, "init must not delete a project's existing hooks"
+        prompt_cmds = [h["command"] for g in settings["hooks"]["UserPromptSubmit"] for h in g["hooks"]]
+        assert "sh record.sh" in prompt_cmds
+        assert any(".rebob" in c and "hook.py" in c for c in prompt_cmds)
+
+    def test_rerun_does_not_duplicate_rebob_hooks(self, project_dir):
+        inputs = iter(["proj-uuid-123", "", "proj-uuid-123", ""])
+        with patch("builtins.input", lambda _: next(inputs)):
+            with patch("getpass.getpass", return_value="fake-api-key"):
+                run_init()
+                run_init()
+
+        settings = json.loads((project_dir / ".bob" / "settings.json").read_text())
+        prompt_groups = settings["hooks"]["UserPromptSubmit"]
+        rebob_groups = [
+            g for g in prompt_groups
+            if any(".rebob" in h.get("command", "") for h in g.get("hooks", []))
+        ]
+        assert len(rebob_groups) == 1, "re-running init should not duplicate ReBOB's hook entry"
+
 
 class TestDoctor:
     def test_fails_without_init(self, project_dir):
