@@ -144,3 +144,45 @@ def generate(prompt: str, *, max_tokens: int = 2048, temperature: float = 0.1) -
     )
     response = model.generate_text(prompt=prompt)
     return response if isinstance(response, str) else str(response)
+
+
+def rerank(query: str, documents: list, *, top_n: int = 20) -> list:
+    """Return indices of *documents* sorted by relevance (best first).
+
+    Uses the watsonx Text Rerank API.  On any failure (network, timeout, missing
+    creds) returns the identity ordering [0, 1, 2, ...] so callers are
+    unaffected.  Never raises.
+    """
+    if not documents:
+        return []
+
+    identity = list(range(len(documents)))
+    try:
+        cfg = _load_config()
+        rerank_model = os.getenv(
+            "WATSONX_RERANK_MODEL",
+            "ibm/slate-125m-english-rtrvr-v2",
+        )
+
+        from ibm_watsonx_ai import Credentials
+        from ibm_watsonx_ai.foundation_models.rerank import Rerank
+
+        credentials = Credentials(
+            url=cfg["WATSONX_URL"],
+            api_key=cfg["IBM_CLOUD_API_KEY"],
+        )
+        reranker = Rerank(
+            model_id=rerank_model,
+            credentials=credentials,
+            project_id=cfg["WATSONX_PROJECT_ID"],
+            params={"return_options": {"top_n": min(top_n, len(documents))}},
+        )
+        response = reranker.generate(query=query, inputs=documents)
+        # SDK returns {"results": [{"index": int, "score": float}, ...]}
+        results = response.get("results", [])
+        if not results:
+            return identity
+        return [r["index"] for r in results]
+
+    except Exception:
+        return identity

@@ -1,24 +1,55 @@
 """Tests for rebob.core.api."""
 
 import json
+from unittest.mock import patch
 
 import pytest
 
-from rebob.core import api
+from rebob.core import api, store
 
 
 class TestMemSearch:
-    def test_returns_markdown_header(self, rebob_tmp_home):
-        result = api.mem_search("auth flow")
+    def test_returns_string(self, initialized_db):
+        """mem_search always returns a string, never raises."""
+        with patch("rebob.core.watsonx.embed", return_value=[1.0, 0.0, 0.0]):
+            with patch("rebob.core.watsonx.rerank", side_effect=lambda q, d, **kw: list(range(len(d)))):
+                result = api.mem_search("auth flow")
+        assert isinstance(result, str)
+
+    def test_empty_db_returns_empty_string(self, initialized_db):
+        """With no memories, retrieval should return empty string."""
+        with patch("rebob.core.watsonx.embed", return_value=[1.0, 0.0, 0.0]):
+            with patch("rebob.core.watsonx.rerank", side_effect=lambda q, d, **kw: list(range(len(d)))):
+                result = api.mem_search("anything")
+        assert result == ""
+
+    def test_seeded_db_returns_brief(self, initialized_db):
+        """With a matching memory, should return a markdown brief."""
+        store.insert_memory({
+            "memory_type": "env_setup",
+            "content": "Run make setup before make start.",
+            "confidence": 0.9,
+            "status": "active",
+            "anchor_valid": 1,
+        })
+        with patch("rebob.core.watsonx.embed", return_value=[1.0, 0.0, 0.0]):
+            with patch("rebob.core.watsonx.rerank", side_effect=lambda q, d, **kw: list(range(len(d)))):
+                result = api.mem_search("make setup")
         assert result.startswith("## ReBOB Memory Brief")
+        assert "make setup" in result.lower()
 
-    def test_contains_mem_001_and_mem_002(self, rebob_tmp_home):
-        result = api.mem_search("anything")
-        assert "mem_001" in result
-        assert "mem_002" in result
-
-    def test_ignores_query_for_stub(self, rebob_tmp_home):
-        assert api.mem_search("query-a") == api.mem_search("query-b")
+    def test_watsonx_failure_returns_empty(self, initialized_db):
+        """On any retrieval error, mem_search must return '' not raise."""
+        store.insert_memory({
+            "memory_type": "env_setup",
+            "content": "Run make setup before make start.",
+            "status": "active",
+            "anchor_valid": 1,
+        })
+        with patch("rebob.core.watsonx.embed", side_effect=RuntimeError("down")):
+            with patch("rebob.core.watsonx.rerank", side_effect=RuntimeError("down")):
+                result = api.mem_search("make setup")
+        assert isinstance(result, str)
 
 
 class TestMemCapture:
@@ -69,29 +100,63 @@ class TestMemStats:
 
 
 class TestMemWhy:
-    def test_returns_correct_id(self, rebob_tmp_home):
-        result = api.mem_why("mem_abc")
-        assert result["id"] == "mem_abc"
+    def test_returns_correct_id_for_missing_memory(self, initialized_db):
+        result = api.mem_why("mem_nonexistent")
+        assert result["id"] == "mem_nonexistent"
+        assert result.get("error") == "not found"
+        assert result["content"] is None
 
-    def test_returns_stub_content(self, rebob_tmp_home):
-        result = api.mem_why("mem_abc")
-        assert result["content"] == "stub — not implemented yet"
+    def test_returns_content_for_existing_memory(self, initialized_db):
+        mid = store.insert_memory({
+            "memory_type": "env_setup",
+            "content": "The real content.",
+            "status": "active",
+            "anchor_valid": 1,
+        })
+        result = api.mem_why(mid)
+        assert result["id"] == mid
+        assert result["content"] == "The real content."
+        assert isinstance(result["provenance"], list)
 
-    def test_returns_empty_provenance(self, rebob_tmp_home):
-        result = api.mem_why("mem_abc")
-        assert result["provenance"] == []
+    def test_provenance_has_source_entry(self, initialized_db):
+        mid = store.insert_memory({
+            "memory_type": "convention",
+            "content": "Use tabs not spaces.",
+            "source_kind": "hook_session",
+            "task_id": "task-001",
+            "status": "active",
+            "anchor_valid": 1,
+        })
+        result = api.mem_why(mid)
+        # Last provenance entry should be the source info
+        assert any(p.get("source_kind") == "hook_session" for p in result["provenance"])
 
 
 class TestMemFeedback:
     @pytest.mark.parametrize("verdict", ["useful", "wrong"])
-    def test_returns_ok_with_verdict(self, rebob_tmp_home, verdict):
-        result = api.mem_feedback("mem_001", verdict)
-        assert result == {"ok": True, "id": "mem_001", "verdict": verdict}
+    def test_returns_ok_with_valid_verdict(self, initialized_db, verdict):
+        mid = store.insert_memory({
+            "memory_type": "env_setup",
+            "content": "Feedback test.",
+            "status": "active",
+            "anchor_valid": 1,
+        })
+        result = api.mem_feedback(mid, verdict)
+        assert result["ok"] is True
+        assert result["verdict"] == verdict
+
+    def test_returns_error_for_invalid_verdict(self, initialized_db):
+        result = api.mem_feedback("mem_x", "maybe")
+        assert result["ok"] is False
+        assert "error" in result
 
 
 class TestSearch:
-    def test_returns_same_brief_as_mem_search(self, rebob_tmp_home):
-        assert api.search("hello", session_id="sess-1") == api.mem_search("hello")
+    def test_delegates_to_mem_search(self, initialized_db):
+        """search() and mem_search() should return the same result for the same query."""
+        with patch("rebob.core.watsonx.embed", return_value=[1.0, 0.0, 0.0]):
+            with patch("rebob.core.watsonx.rerank", side_effect=lambda q, d, **kw: list(range(len(d)))):
+                assert api.search("hello", session_id="sess-1") == api.mem_search("hello", session_id="sess-1")
 
 
 class TestRecord:

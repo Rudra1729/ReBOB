@@ -112,6 +112,9 @@ def insert_memory(record: dict) -> str:
     row = dict(record)
     if not row.get("id"):
         row["id"] = "mem_" + secrets.token_hex(4)
+    if not row.get("claim_key"):
+        from rebob.core.resolve import normalize_claim_key
+        row["claim_key"] = normalize_claim_key(row.get("content", "")) or row["id"]
     now = _now()
     row.setdefault("created_at", now)
     row.setdefault("updated_at", now)
@@ -220,3 +223,99 @@ def append_vector(embedding: list) -> int:
 
     np.save(str(npy_path), updated)
     return int(updated.shape[0]) - 1
+
+
+# ---------------------------------------------------------------------------
+# Retrieval read helpers
+# ---------------------------------------------------------------------------
+
+def list_active_memories() -> list:
+    """Return all rows where status='active' and anchor_valid=1."""
+    con = _connect()
+    rows = con.execute(
+        "SELECT * FROM memory WHERE status = 'active' AND anchor_valid = 1"
+    ).fetchall()
+    con.close()
+    return [dict(r) for r in rows]
+
+
+def fts_search(query: str, limit: int = 30) -> list:
+    """BM25 full-text search via memory_fts, returns active rows ranked by relevance."""
+    # Build an OR-joined FTS query from whitespace-split tokens
+    tokens = query.strip().split()
+    if not tokens:
+        return []
+    # Quote each token to avoid FTS5 operator confusion; join with OR
+    fts_query = " OR ".join(f'"{t}"' for t in tokens)
+    con = _connect()
+    try:
+        rows = con.execute(
+            """
+            SELECT m.* FROM memory_fts f
+            JOIN memory m ON m.rowid = f.rowid
+            WHERE memory_fts MATCH ?
+              AND m.status = 'active'
+            ORDER BY rank
+            LIMIT ?
+            """,
+            (fts_query, limit),
+        ).fetchall()
+    except Exception:
+        rows = []
+    con.close()
+    return [dict(r) for r in rows]
+
+
+def load_vectors() -> tuple:
+    """Load .rebob/vectors.npy. Returns (array, exists_flag).
+
+    array shape: (N, dim) float32.  If missing or empty, returns (None, False).
+    """
+    npy_path = _DB_DIR / "vectors.npy"
+    if not npy_path.exists():
+        return None, False
+    try:
+        arr = np.load(str(npy_path))
+        if arr.ndim != 2 or arr.shape[0] == 0:
+            return None, False
+        return arr, True
+    except Exception:
+        return None, False
+
+
+def increment_retrieval(ids: list) -> None:
+    """Bump retrieval_count and set last_used_at for each id in the list."""
+    if not ids:
+        return
+    now = _now()
+    con = _connect()
+    con.executemany(
+        "UPDATE memory SET retrieval_count = retrieval_count + 1, last_used_at = ? WHERE id = ?",
+        [(now, mid) for mid in ids],
+    )
+    con.commit()
+    con.close()
+
+
+def update_feedback(id: str, verdict: str) -> None:
+    """'useful' → positive_signals++; 'wrong' → negative_signals++.
+
+    Also updates the usefulness score as positive / (positive + negative + 1).
+    """
+    con = _connect()
+    if verdict == "useful":
+        con.execute(
+            "UPDATE memory SET positive_signals = positive_signals + 1, "
+            "usefulness = CAST(positive_signals + 1 AS REAL) / (positive_signals + negative_signals + 2) "
+            "WHERE id = ?",
+            (id,),
+        )
+    elif verdict == "wrong":
+        con.execute(
+            "UPDATE memory SET negative_signals = negative_signals + 1, "
+            "usefulness = CAST(positive_signals AS REAL) / (positive_signals + negative_signals + 2) "
+            "WHERE id = ?",
+            (id,),
+        )
+    con.commit()
+    con.close()
