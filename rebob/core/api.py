@@ -11,6 +11,7 @@ record                → appends event to .rebob/sessions/<id>.jsonl
 
 import json
 import sys
+import threading
 from pathlib import Path
 
 _REBOB_DIR = Path(__file__).resolve().parent.parent.parent / ".rebob"
@@ -134,18 +135,39 @@ def search(query: str, session_id: str = "") -> str:
     return mem_search(query, session_id=session_id)
 
 
+# msvcrt.locking() is a cross-process lock; two threads in this same process
+# each locking the same byte via separate handles trips the Windows CRT's
+# self-conflict detection (OSError: Resource deadlock avoided) instead of
+# blocking. This in-process lock serializes same-process callers before they
+# ever reach the OS-level lock below, which still covers the real production
+# case of separate hook.py subprocesses writing concurrently.
+_write_lock = threading.Lock()
+
+
 def _append_line_locked(f, line: str) -> None:
     """Append one line with an exclusive lock (parallel hook subprocesses)."""
+    with _write_lock:
+        _append_line_locked_os(f, line)
+
+
+def _append_line_locked_os(f, line: str) -> None:
     if sys.platform == "win32":
         import msvcrt
 
-        f.seek(0, 2)
+        # Lock a fixed byte (offset 0) purely as a mutual-exclusion token.
+        # Locking the "current end of file" instead would race: two writers
+        # can compute the same stale EOF before either has written, then
+        # both target that same now-wrong offset. Append mode ("a") already
+        # guarantees each write() lands at the true end of file regardless
+        # of seek position, so the lock only needs to serialize writers,
+        # not protect a specific byte range.
+        f.seek(0)
         msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
         try:
             f.write(line)
             f.flush()
         finally:
-            f.seek(0, 2)
+            f.seek(0)
             msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
     else:
         import fcntl
