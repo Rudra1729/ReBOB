@@ -2,7 +2,7 @@
 rebob/core/watsonx.py — watsonx.ai client: IAM token, embeddings, generation.
 
 IAM tokens expire in 60 min; we refresh at 55 min.
-Embedding results are cached by SHA-256 content hash under .rebob/embed_cache/.
+Embedding results are cached by SHA-256 content hash under <rebob_home>/embed_cache/.
 Never logs API keys or tokens.
 """
 
@@ -12,9 +12,9 @@ import os
 import time
 from pathlib import Path
 
-from dotenv import load_dotenv
+from rebob import config, paths
 
-load_dotenv()
+config.load_env()
 
 # ---------------------------------------------------------------------------
 # Config
@@ -22,19 +22,7 @@ load_dotenv()
 
 def _load_config() -> dict:
     """Read required env vars; raise a clear error if any are missing."""
-    keys = ["WATSONX_URL", "WATSONX_PROJECT_ID", "IBM_CLOUD_API_KEY"]
-    cfg = {k: os.getenv(k) for k in keys}
-    missing = [k for k, v in cfg.items() if not v]
-    if missing:
-        raise EnvironmentError(
-            f"Missing required environment variables: {', '.join(missing)}. "
-            "Copy .env.example to .env and fill in your credentials."
-        )
-    cfg["llm_model"] = os.getenv("WATSONX_LLM_MODEL", "ibm/granite-4-h-small")
-    cfg["embed_model"] = os.getenv(
-        "WATSONX_EMBEDDING_MODEL", "ibm/granite-embedding-278m-multilingual"
-    )
-    return cfg
+    return config.get_settings()
 
 
 # ---------------------------------------------------------------------------
@@ -73,7 +61,7 @@ def get_token() -> str:
 # ---------------------------------------------------------------------------
 
 def _cache_dir() -> Path:
-    d = Path(".rebob") / "embed_cache"
+    d = paths.embed_cache_dir()
     d.mkdir(parents=True, exist_ok=True)
     return d
 

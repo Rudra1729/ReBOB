@@ -7,6 +7,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
+from rebob import paths
 from rebob.core import store
 from rebob.core import retrieve as retrieve_mod
 from rebob.core.retrieve import (
@@ -25,10 +26,12 @@ from rebob.core.retrieve import (
 
 @pytest.fixture(autouse=True)
 def isolated_injected(tmp_path, monkeypatch):
-    """Redirect _INJECTED_DIR to a temp directory."""
-    injected_dir = tmp_path / ".rebob" / "injected"
-    monkeypatch.setattr(retrieve_mod, "_INJECTED_DIR", injected_dir)
-    return injected_dir
+    """Redirect the injected-dedup dir to a temp directory via REBOB_HOME."""
+    rebob_dir = tmp_path / ".rebob"
+    monkeypatch.setenv("REBOB_HOME", str(rebob_dir))
+    paths.reset_cache()
+    yield rebob_dir / "injected"
+    paths.reset_cache()
 
 
 @pytest.fixture

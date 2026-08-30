@@ -6,17 +6,14 @@ mem_capture           → triggers real write-path pipeline via worker
 mem_stats             → live counts from SQLite
 mem_why               → provenance chain walker
 mem_feedback          → signals feedback to store
-record                → appends event to .rebob/sessions/<id>.jsonl
+record                → appends event to <rebob_home>/sessions/<id>.jsonl
 """
 
 import json
 import sys
 import threading
-from pathlib import Path
 
-_REBOB_DIR = Path(__file__).resolve().parent.parent.parent / ".rebob"
-_CAPTURES_DIR = _REBOB_DIR / "captures"
-_SESSIONS_DIR = _REBOB_DIR / "sessions"
+from rebob import paths
 
 # ---------------------------------------------------------------------------
 # MCP tools
@@ -49,7 +46,7 @@ def mem_capture(
 
     sid = session_id
     if not sid:
-        sessions_dir = _SESSIONS_DIR
+        sessions_dir = paths.sessions_dir()
         if sessions_dir.exists():
             jsonl_files = sorted(
                 sessions_dir.glob("*.jsonl"),
@@ -183,8 +180,9 @@ def _append_line_locked_os(f, line: str) -> None:
 def record(event: dict) -> None:
     """Persist a lifecycle event emitted by the hook."""
     session_id = event.get("session_id", "unknown")
-    _SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
-    path = _SESSIONS_DIR / f"{session_id}.jsonl"
+    sessions_dir = paths.sessions_dir()
+    sessions_dir.mkdir(parents=True, exist_ok=True)
+    path = sessions_dir / f"{session_id}.jsonl"
     line = json.dumps(event) + "\n"
     with path.open("a", encoding="utf-8") as f:
         _append_line_locked(f, line)

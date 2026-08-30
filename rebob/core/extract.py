@@ -9,9 +9,9 @@ import json
 import re
 from pathlib import Path
 
-from dotenv import load_dotenv
+from rebob import config
 
-load_dotenv()
+config.load_env()
 
 # ---------------------------------------------------------------------------
 # Constants

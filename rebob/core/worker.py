@@ -16,21 +16,17 @@ CLI usage:
 import json
 from pathlib import Path
 
-from dotenv import load_dotenv
+from rebob import config, paths
 
-from dotenv import load_dotenv
-
-load_dotenv()
+config.load_env()
 
 
 def _sessions_dir() -> Path:
-    from rebob.core.store import _DB_DIR
-    return _DB_DIR / "sessions"
+    return paths.sessions_dir()
 
 
 def _pending_dir() -> Path:
-    from rebob.core.store import _DB_DIR
-    return _DB_DIR / "pending"
+    return paths.pending_dir()
 
 
 # ---------------------------------------------------------------------------
