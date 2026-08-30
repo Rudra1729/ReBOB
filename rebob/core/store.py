@@ -2,22 +2,18 @@
 rebob/core/store.py — SQLite store + numpy vector append for ReBOB.
 
 Call init_db() once on startup.  Safe to call multiple times (idempotent).
-DB lives at .rebob/rebob.db  — that directory is gitignored.
-Delete .rebob/rebob.db to reset the dev DB.
-
-Vectors live at .rebob/vectors.npy as a float32 array of shape (N, dim).
+DB path is resolved via rebob.paths (see that module for the resolution order).
+Delete the db file to reset the dev DB.
 """
 
 import json
 import sqlite3
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Optional
 
 import numpy as np
 
-_DB_DIR = Path(".rebob")
-_DB_PATH = _DB_DIR / "rebob.db"
+from rebob import paths
 
 _FULL_SCHEMA = """
 CREATE TABLE IF NOT EXISTS memory (
@@ -76,23 +72,24 @@ CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts
 """
 
 
-def db_path() -> Path:
+def db_path():
     """Return the path to the SQLite database file."""
-    return _DB_PATH
+    return paths.db_path()
 
 
 def _connect() -> sqlite3.Connection:
-    _DB_DIR.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(_DB_PATH)
+    paths.rebob_home().mkdir(parents=True, exist_ok=True)
+    con = sqlite3.connect(paths.db_path())
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA journal_mode=WAL")
+    con.execute("PRAGMA busy_timeout=5000")
     con.execute("PRAGMA foreign_keys=ON")
     return con
 
 
 def init_db() -> None:
-    """Create .rebob/ and initialise the SQLite schema if not already present."""
-    _DB_DIR.mkdir(parents=True, exist_ok=True)
+    """Create the data directory and initialise the SQLite schema if not already present."""
+    paths.rebob_home().mkdir(parents=True, exist_ok=True)
     con = _connect()
     con.executescript(_FULL_SCHEMA)
     con.commit()
@@ -209,11 +206,11 @@ def count_by_status() -> dict:
 
 
 def append_vector(embedding: list) -> int:
-    """Append one float32 row to .rebob/vectors.npy. Returns 0-based row index."""
-    _DB_DIR.mkdir(parents=True, exist_ok=True)
+    """Append one float32 row to the vectors file. Returns 0-based row index."""
+    paths.rebob_home().mkdir(parents=True, exist_ok=True)
     vec = np.array(embedding, dtype=np.float32)
     dim = vec.shape[0]
-    npy_path = _DB_DIR / "vectors.npy"
+    npy_path = paths.vectors_path()
 
     if npy_path.exists():
         existing = np.load(str(npy_path))
@@ -267,11 +264,11 @@ def fts_search(query: str, limit: int = 30) -> list:
 
 
 def load_vectors() -> tuple:
-    """Load .rebob/vectors.npy. Returns (array, exists_flag).
+    """Load the vectors file. Returns (array, exists_flag).
 
     array shape: (N, dim) float32.  If missing or empty, returns (None, False).
     """
-    npy_path = _DB_DIR / "vectors.npy"
+    npy_path = paths.vectors_path()
     if not npy_path.exists():
         return None, False
     try:

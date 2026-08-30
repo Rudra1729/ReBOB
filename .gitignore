@@ -121,3 +121,13 @@ build/
 # ReBOB
 .rebob/
 *.npy
+
+# Machine-specific Bob config — written by `rebob init`, contains absolute
+# interpreter paths that are wrong on every machine but the one that wrote them.
+.bob/mcp.json
+.bob/settings.json
+
+# Packaging build artifacts
+*.egg-info/
+dist/
+build/

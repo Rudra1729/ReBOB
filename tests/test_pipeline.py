@@ -65,7 +65,7 @@ class TestPipeline:
             '"tool_name":"run_command"}'
         )
         path = session_jsonl
-        path.write_text(path.read_text() + "\n" + secret_line, encoding="utf-8")
+        path.write_text(path.read_text(encoding="utf-8") + "\n" + secret_line, encoding="utf-8")
 
         llm_json = json.dumps([{
             "memory_type": "gotcha",
