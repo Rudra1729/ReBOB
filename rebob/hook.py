@@ -5,6 +5,9 @@ Invoked by Bob as:  <python> -m rebob.hook <prompt|tool|stop>
 Reads a JSON event from stdin, records it, and (for "prompt") prints a
 memory brief to stdout for injection into the user's prompt.
 
+Hosted mode: when REBOB_SERVER_URL is set, events go to the HTTP server
+via rebob.client (fail-open). Local mode uses in-process contract calls.
+
 This must NEVER exit non-zero and must NEVER raise past this module —
 a broken hook must not block the user's prompt. Set REBOB_DEBUG=1 to
 write tracebacks to <rebob_home>/hook.log instead of swallowing them
@@ -34,22 +37,52 @@ def _log_debug_error() -> None:
         pass
 
 
+def _use_hosted() -> bool:
+    from rebob.credentials import get_server_url
+
+    return bool(os.environ.get("REBOB_SERVER_URL") or get_server_url())
+
+
 def main(argv: list[str]) -> int:
     try:
-        from rebob.contract import record, search
-
         hook_type = argv[1] if len(argv) > 1 else "unknown"
+        os.environ["REBOB_HOOK_TYPE"] = hook_type
         raw = sys.stdin.read()
         event = json.loads(raw) if raw.strip() else {}
         session_id = event.get("session_id", "unknown")
 
-        record({"hook": hook_type, **event})
+        if _use_hosted():
+            from rebob.core.events import sanitize_event
+            from rebob import client as rebob_client
 
-        if hook_type == "prompt":
-            prompt = event.get("prompt", "")
-            brief = search(prompt, session_id=session_id)
-            if brief:
-                sys.stdout.write(brief)
+            clean = sanitize_event({"hook": hook_type, **event})
+            posted = rebob_client.record(clean)
+            if os.environ.get("REBOB_DEBUG") == "1":
+                try:
+                    from rebob import paths
+
+                    paths.rebob_home().mkdir(parents=True, exist_ok=True)
+                    with paths.hook_log_path().open("a", encoding="utf-8") as f:
+                        f.write(
+                            f"hook={hook_type} session={session_id} "
+                            f"posted={posted is not None}\n"
+                        )
+                except Exception:
+                    pass
+            if hook_type == "prompt":
+                prompt = event.get("prompt", "")
+                brief = rebob_client.search(prompt, session_id=session_id)
+                if brief:
+                    sys.stdout.write(brief)
+        else:
+            from rebob.contract import record, search
+
+            record({"hook": hook_type, **event})
+            if hook_type == "prompt":
+                prompt = event.get("prompt", "")
+                brief = search(prompt, session_id=session_id)
+                if brief:
+                    sys.stdout.write(brief)
     except Exception:
         _log_debug_error()
 
@@ -57,9 +90,6 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
-    # Force UTF-8 output regardless of the host console's codepage (cp1252
-    # on Windows) — a stray emoji or box-drawing character in a memory
-    # brief must not raise UnicodeEncodeError and break the prompt.
     try:
         sys.stdout.reconfigure(encoding="utf-8")
         sys.stderr.reconfigure(encoding="utf-8")

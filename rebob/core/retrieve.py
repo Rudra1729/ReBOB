@@ -85,25 +85,13 @@ def _dense_search(query: str, memories: list, limit: int = 30) -> list:
 
     from rebob.core import store, watsonx
 
-    vectors, ok = store.load_vectors()
-    if not ok:
-        return []
-
     try:
         qvec = np.array(watsonx.embed(query), dtype=np.float32)
     except Exception:
         return []
 
-    scored = []
-    for mem in memories:
-        vrow = mem.get("vector_row")
-        if vrow is None or vrow < 0 or vrow >= vectors.shape[0]:
-            continue
-        sim = _cosine(qvec, vectors[vrow])
-        scored.append((mem["id"], sim))
-
-    scored.sort(key=lambda x: x[1], reverse=True)
-    return [mid for mid, _ in scored[:limit]]
+    memory_ids = [m["id"] for m in memories]
+    return store.vector_search(qvec, limit=limit, memory_ids=memory_ids)
 
 
 # ---------------------------------------------------------------------------

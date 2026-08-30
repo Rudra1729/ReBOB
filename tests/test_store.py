@@ -112,10 +112,18 @@ def test_count_by_status(initialized_db):
     assert counts["rejected"] == 1
 
 
-def test_append_vector_creates_npy(initialized_db, rebob_tmp_home):
-    idx0 = append_vector([1.0, 2.0, 3.0])
-    idx1 = append_vector([4.0, 5.0, 6.0])
-    assert idx0 == 0
-    assert idx1 == 1
-    arr = np.load(str(rebob_tmp_home / "vectors.npy"))
-    assert arr.shape == (2, 3)
+def test_store_embedding_persists_vectors(initialized_db):
+    from rebob.core.store import get_embeddings, store_embedding
+
+    emb0 = store_embedding([1.0, 2.0, 3.0])
+    emb1 = store_embedding([4.0, 5.0, 6.0])
+    assert emb0 != emb1
+    vecs = get_embeddings([emb0, emb1])
+    assert vecs[emb0].shape == (3,)
+    assert vecs[emb1].shape == (3,)
+
+
+def test_append_vector_alias(initialized_db):
+    emb_id = append_vector([1.0, 0.0, 0.0])
+    assert isinstance(emb_id, str)
+    assert len(emb_id) == 36  # UUID format

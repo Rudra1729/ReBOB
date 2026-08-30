@@ -40,17 +40,25 @@ def run_init(
     url: str = "",
     transport: str = "stdio",
     port: int = 8000,
+    server: str = "",
+    api_token: str = "",
 ) -> None:
     root = paths.project_root()
     python = resolve_python()
+    hosted = bool(server)
 
     print(f"ReBOB init - project: {root}")
     print(f"Python: {python}")
+    if hosted:
+        print(f"Hosted server: {server}")
     print()
 
     env_path = paths.env_file()
-    write_env = True
-    if env_path.exists():
+    write_env = not hosted
+    if hosted:
+        print("  hosted mode: skipping local .env (watsonx creds live on server)")
+        write_env = False
+    elif env_path.exists():
         if non_interactive:
             write_env = False
             print(f"  .env exists, keeping it ({env_path})")
@@ -80,15 +88,32 @@ def run_init(
         write_text(env_path, env_body, overwrite=True)
         print(f"  wrote {env_path}")
 
+    token = api_token
+    if hosted and not token:
+        try:
+            from rebob.credentials import get_token
+
+            token = get_token()
+        except Exception:
+            token = ""
+
+    mcp_transport = "http" if hosted else transport
     mcp_path = root / ".bob" / "mcp.json"
     existing_mcp, _ = load_json(mcp_path)
-    new_mcp = build_mcp(python, root, transport=transport, port=port)
+    new_mcp = build_mcp(
+        python,
+        root,
+        transport=mcp_transport,
+        port=port,
+        server_url=server,
+        api_token=token,
+    )
     write_json(mcp_path, merge_mcp(existing_mcp, new_mcp))
-    print(f"  wrote {mcp_path} (transport={transport})")
+    print(f"  wrote {mcp_path} (transport={'http' if hosted else transport})")
 
     settings_path = root / ".bob" / "settings.json"
     existing_settings, _ = load_json(settings_path)
-    new_settings = build_settings(python)
+    new_settings = build_settings(python, server_url=server, api_token=token)
     write_json(settings_path, merge_settings(existing_settings, new_settings))
     print(f"  wrote {settings_path}")
 
@@ -114,7 +139,13 @@ def run_init(
     print()
     print("ReBOB initialized.")
     print("Next steps:")
-    print("  1. Open this folder in Bob IDE")
-    print("  2. Settings -> MCP -> enable tools for new tasks")
-    print("  3. Run: rebob doctor")
-    print("  4. Start a new Bob task and type a prompt")
+    if hosted:
+        print(f"  1. rebob login --token <key>  (server URL: {server})")
+        print("  2. rebob register-watsonx  (BYO IBM watsonx credentials)")
+        print("  3. Open this folder in Bob IDE")
+        print("  4. Settings -> MCP -> enable tools for new tasks")
+    else:
+        print("  1. Open this folder in Bob IDE")
+        print("  2. Settings -> MCP -> enable tools for new tasks")
+        print("  3. Run: rebob doctor")
+        print("  4. Start a new Bob task and type a prompt")

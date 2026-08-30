@@ -1,318 +1,87 @@
 """
-rebob/core/store.py — SQLite store + numpy vector append for ReBOB.
+rebob/core/store.py — Facade over StorageBackend.
 
-Call init_db() once on startup.  Safe to call multiple times (idempotent).
-DB path is resolved via rebob.paths (see that module for the resolution order).
-Delete the db file to reset the dev DB.
+All callers import from here; the actual backend is selected via
+REBOB_BACKEND=sqlite|postgres (default: sqlite).
 """
 
-import json
-import sqlite3
-from datetime import datetime, timezone
+from __future__ import annotations
+
 from typing import Optional
 
 import numpy as np
 
-from rebob import paths
-
-_FULL_SCHEMA = """
-CREATE TABLE IF NOT EXISTS memory (
-  id                TEXT PRIMARY KEY,
-  claim_key         TEXT NOT NULL,
-  version           INTEGER DEFAULT 1,
-  supersedes        TEXT,
-  status            TEXT NOT NULL,
-  created_at        TIMESTAMP,
-  updated_at        TIMESTAMP,
-
-  memory_type       TEXT NOT NULL,
-  content           TEXT NOT NULL,
-  rationale         TEXT,
-  counter_example   TEXT,
-  snippet           TEXT,
-
-  scope             TEXT NOT NULL,
-  repo_url          TEXT,
-  branch            TEXT,
-  author_id         TEXT,
-  file_paths        TEXT,
-  symbols           TEXT,
-  languages         TEXT,
-  commit_sha        TEXT,
-  anchor_valid      BOOLEAN DEFAULT 1,
-
-  source_kind       TEXT,
-  task_id           TEXT,
-  bob_mode          TEXT,
-  extractor_model   TEXT,
-  raw_hash          TEXT,
-
-  confidence        REAL,
-  evidence_count    INTEGER DEFAULT 1,
-  volatility        TEXT,
-  verification      TEXT,
-
-  retrieval_count   INTEGER DEFAULT 0,
-  used_count        INTEGER DEFAULT 0,
-  positive_signals  INTEGER DEFAULT 0,
-  negative_signals  INTEGER DEFAULT 0,
-  usefulness        REAL DEFAULT 0.5,
-  last_used_at      TIMESTAMP,
-
-  sensitivity       TEXT DEFAULT 'internal',
-  redaction_applied TEXT,
-  pinned            BOOLEAN DEFAULT 0,
-
-  vector_row        INTEGER,
-  keywords          TEXT
-);
-
-CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts
-  USING fts5(content, rationale, keywords, content=memory);
-"""
+from rebob.core.storage import get_backend, init_db as _init_db
 
 
 def db_path():
-    """Return the path to the SQLite database file."""
-    return paths.db_path()
-
-
-def _connect() -> sqlite3.Connection:
-    paths.rebob_home().mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(paths.db_path())
-    con.row_factory = sqlite3.Row
-    con.execute("PRAGMA journal_mode=WAL")
-    con.execute("PRAGMA busy_timeout=5000")
-    con.execute("PRAGMA foreign_keys=ON")
-    return con
+    return get_backend().db_path()
 
 
 def init_db() -> None:
-    """Create the data directory and initialise the SQLite schema if not already present."""
-    paths.rebob_home().mkdir(parents=True, exist_ok=True)
-    con = _connect()
-    con.executescript(_FULL_SCHEMA)
-    con.commit()
-    con.close()
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    _init_db()
 
 
 def insert_memory(record: dict) -> str:
-    """Insert a memory row. Generates id like mem_<8 hex chars> if not present.
-
-    Returns the inserted id.
-    """
-    import secrets
-    row = dict(record)
-    if not row.get("id"):
-        row["id"] = "mem_" + secrets.token_hex(4)
-    if not row.get("claim_key"):
-        from rebob.core.resolve import normalize_claim_key
-        row["claim_key"] = normalize_claim_key(row.get("content", "")) or row["id"]
-    now = _now()
-    row.setdefault("created_at", now)
-    row.setdefault("updated_at", now)
-    row.setdefault("status", "active")
-    row.setdefault("scope", "repo")
-    row.setdefault("evidence_count", 1)
-    row.setdefault("version", 1)
-    row.setdefault("anchor_valid", 1)
-    row.setdefault("usefulness", 0.5)
-    row.setdefault("retrieval_count", 0)
-    row.setdefault("used_count", 0)
-    row.setdefault("positive_signals", 0)
-    row.setdefault("negative_signals", 0)
-    row.setdefault("sensitivity", "internal")
-    row.setdefault("pinned", 0)
-    row.setdefault("verification", "asserted")
-
-    # JSON-encode list fields if they came in as lists
-    for field in ("file_paths", "symbols", "languages", "keywords", "redaction_applied"):
-        if isinstance(row.get(field), (list, dict)):
-            row[field] = json.dumps(row[field])
-
-    columns = ", ".join(row.keys())
-    placeholders = ", ".join("?" for _ in row)
-    con = _connect()
-    con.execute(
-        f"INSERT INTO memory ({columns}) VALUES ({placeholders})",
-        list(row.values()),
-    )
-    # Keep FTS in sync
-    con.execute(
-        "INSERT INTO memory_fts(rowid, content, rationale, keywords) "
-        "SELECT rowid, content, rationale, keywords FROM memory WHERE id = ?",
-        (row["id"],),
-    )
-    con.commit()
-    con.close()
-    return row["id"]
+    return get_backend().insert_memory(record)
 
 
 def update_memory(id: str, fields: dict) -> None:
-    """Update specific fields of an existing memory row."""
-    if not fields:
-        return
-    fields = dict(fields)
-    fields["updated_at"] = _now()
-    for field in ("file_paths", "symbols", "languages", "keywords", "redaction_applied"):
-        if isinstance(fields.get(field), (list, dict)):
-            fields[field] = json.dumps(fields[field])
-    set_clause = ", ".join(f"{k} = ?" for k in fields)
-    values = list(fields.values()) + [id]
-    con = _connect()
-    con.execute(f"UPDATE memory SET {set_clause} WHERE id = ?", values)
-    con.commit()
-    con.close()
+    get_backend().update_memory(id, fields)
 
 
 def get_memory(id: str) -> Optional[dict]:
-    """Return a memory row as dict, or None if not found."""
-    con = _connect()
-    row = con.execute("SELECT * FROM memory WHERE id = ?", (id,)).fetchone()
-    con.close()
-    return dict(row) if row else None
+    return get_backend().get_memory(id)
 
 
 def get_by_claim_key(claim_key: str, status: str = "active") -> list:
-    """Return all memory rows matching claim_key and status."""
-    con = _connect()
-    rows = con.execute(
-        "SELECT * FROM memory WHERE claim_key = ? AND status = ?",
-        (claim_key, status),
-    ).fetchall()
-    con.close()
-    return [dict(r) for r in rows]
+    return get_backend().get_by_claim_key(claim_key, status)
 
 
 def count_by_status() -> dict:
-    """Return {"total", "active", "superseded", "rejected"}."""
-    con = _connect()
-    rows = con.execute(
-        "SELECT status, COUNT(*) as n FROM memory GROUP BY status"
-    ).fetchall()
-    con.close()
-    counts = {r["status"]: r["n"] for r in rows}
-    total = sum(counts.values())
-    return {
-        "total": total,
-        "active": counts.get("active", 0),
-        "superseded": counts.get("superseded", 0),
-        "rejected": counts.get("rejected", 0),
-    }
+    return get_backend().count_by_status()
 
 
-def append_vector(embedding: list) -> int:
-    """Append one float32 row to the vectors file. Returns 0-based row index."""
-    paths.rebob_home().mkdir(parents=True, exist_ok=True)
-    vec = np.array(embedding, dtype=np.float32)
-    dim = vec.shape[0]
-    npy_path = paths.vectors_path()
-
-    if npy_path.exists():
-        existing = np.load(str(npy_path))
-        updated = np.vstack([existing, vec.reshape(1, dim)])
-    else:
-        updated = vec.reshape(1, dim)
-
-    np.save(str(npy_path), updated)
-    return int(updated.shape[0]) - 1
+def store_embedding(vector: list[float], embedding_id: Optional[str] = None) -> str:
+    return get_backend().store_embedding(vector, embedding_id)
 
 
-# ---------------------------------------------------------------------------
-# Retrieval read helpers
-# ---------------------------------------------------------------------------
-
-def list_active_memories() -> list:
-    """Return all rows where status='active' and anchor_valid=1."""
-    con = _connect()
-    rows = con.execute(
-        "SELECT * FROM memory WHERE status = 'active' AND anchor_valid = 1"
-    ).fetchall()
-    con.close()
-    return [dict(r) for r in rows]
+def get_embeddings(ids: list[str]) -> dict[str, np.ndarray]:
+    return get_backend().get_embeddings(ids)
 
 
-def fts_search(query: str, limit: int = 30) -> list:
-    """BM25 full-text search via memory_fts, returns active rows ranked by relevance."""
-    # Build an OR-joined FTS query from whitespace-split tokens
-    tokens = query.strip().split()
-    if not tokens:
-        return []
-    # Quote each token to avoid FTS5 operator confusion; join with OR
-    fts_query = " OR ".join(f'"{t}"' for t in tokens)
-    con = _connect()
-    try:
-        rows = con.execute(
-            """
-            SELECT m.* FROM memory_fts f
-            JOIN memory m ON m.rowid = f.rowid
-            WHERE memory_fts MATCH ?
-              AND m.status = 'active'
-            ORDER BY rank
-            LIMIT ?
-            """,
-            (fts_query, limit),
-        ).fetchall()
-    except Exception:
-        rows = []
-    con.close()
-    return [dict(r) for r in rows]
+def vector_search(
+    query_vec: np.ndarray,
+    limit: int = 30,
+    memory_ids: Optional[list[str]] = None,
+) -> list[str]:
+    return get_backend().vector_search(query_vec, limit=limit, memory_ids=memory_ids)
+
+
+def append_vector(embedding: list) -> str:
+    """Legacy alias — returns embedding_id (UUID string)."""
+    return get_backend().store_embedding(embedding)
 
 
 def load_vectors() -> tuple:
-    """Load the vectors file. Returns (array, exists_flag).
+    """Legacy — returns (array, exists_flag). Prefer get_embeddings()."""
+    backend = get_backend()
+    if hasattr(backend, "load_vectors"):
+        return backend.load_vectors()
+    return None, False
 
-    array shape: (N, dim) float32.  If missing or empty, returns (None, False).
-    """
-    npy_path = paths.vectors_path()
-    if not npy_path.exists():
-        return None, False
-    try:
-        arr = np.load(str(npy_path))
-        if arr.ndim != 2 or arr.shape[0] == 0:
-            return None, False
-        return arr, True
-    except Exception:
-        return None, False
+
+def list_active_memories() -> list:
+    return get_backend().list_active_memories()
+
+
+def fts_search(query: str, limit: int = 30) -> list:
+    return get_backend().fts_search(query, limit=limit)
 
 
 def increment_retrieval(ids: list) -> None:
-    """Bump retrieval_count and set last_used_at for each id in the list."""
-    if not ids:
-        return
-    now = _now()
-    con = _connect()
-    con.executemany(
-        "UPDATE memory SET retrieval_count = retrieval_count + 1, last_used_at = ? WHERE id = ?",
-        [(now, mid) for mid in ids],
-    )
-    con.commit()
-    con.close()
+    get_backend().increment_retrieval(ids)
 
 
 def update_feedback(id: str, verdict: str) -> None:
-    """'useful' → positive_signals++; 'wrong' → negative_signals++.
-
-    Also updates the usefulness score as positive / (positive + negative + 1).
-    """
-    con = _connect()
-    if verdict == "useful":
-        con.execute(
-            "UPDATE memory SET positive_signals = positive_signals + 1, "
-            "usefulness = CAST(positive_signals + 1 AS REAL) / (positive_signals + negative_signals + 2) "
-            "WHERE id = ?",
-            (id,),
-        )
-    elif verdict == "wrong":
-        con.execute(
-            "UPDATE memory SET negative_signals = negative_signals + 1, "
-            "usefulness = CAST(positive_signals AS REAL) / (positive_signals + negative_signals + 2) "
-            "WHERE id = ?",
-            (id,),
-        )
-    con.commit()
-    con.close()
+    get_backend().update_feedback(id, verdict)

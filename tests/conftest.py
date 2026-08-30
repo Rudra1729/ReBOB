@@ -4,6 +4,7 @@ import pytest
 
 from rebob import paths
 from rebob.core import store
+from rebob.core.storage import reset_backend
 
 
 @pytest.fixture
@@ -16,9 +17,18 @@ def rebob_tmp_home(tmp_path, monkeypatch):
     """
     rebob_dir = tmp_path / ".rebob"
     monkeypatch.setenv("REBOB_HOME", str(rebob_dir))
+    monkeypatch.setenv("REBOB_BACKEND", "sqlite")
     paths.reset_cache()
+    reset_backend()
     yield rebob_dir
     paths.reset_cache()
+    reset_backend()
+
+
+@pytest.fixture(params=["sqlite"])
+def backend_name(request):
+    """Parametrize backend tests — postgres added in Phase 3."""
+    return request.param
 
 
 @pytest.fixture
