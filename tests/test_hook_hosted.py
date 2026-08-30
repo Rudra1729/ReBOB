@@ -1,9 +1,8 @@
 """Hosted hook fail-open behavior."""
 
-import json
-import subprocess
-import sys
 from unittest.mock import patch
+
+import rebob.client  # noqa: F401 — bind submodule so patch("rebob.client.*") resolves
 
 
 def test_hook_exits_zero_when_client_fails(rebob_tmp_home, monkeypatch):
