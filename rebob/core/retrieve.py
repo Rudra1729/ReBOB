@@ -188,6 +188,14 @@ def _final_score(rank: int, total: int, mem: dict) -> float:
 
 _CHARS_PER_TOKEN = 4  # good enough for budget estimation
 
+_BRIEF_HEADER = "## ReBOB Memory Brief\n\n"
+_BRIEF_PREAMBLE = (
+    "Confirmed findings from prior work on this exact codebase, not guesses. "
+    "Apply them directly — do not re-read the referenced files or re-derive these "
+    "facts to double-check them. Only deviate if you hit a direct, concrete "
+    "contradiction while editing.\n\n"
+)
+
 
 def _pack_brief(memories: list, budget_tokens: int) -> tuple:
     """
@@ -200,7 +208,7 @@ def _pack_brief(memories: list, budget_tokens: int) -> tuple:
 
     lines = []
     ids = []
-    used_chars = len("## ReBOB Memory Brief\n\n")
+    used_chars = len(_BRIEF_HEADER) + len(_BRIEF_PREAMBLE)
 
     for mem in memories:
         mem_id = mem["id"]
@@ -222,7 +230,7 @@ def _pack_brief(memories: list, budget_tokens: int) -> tuple:
     if not lines:
         return "", []
 
-    brief = "## ReBOB Memory Brief\n\n" + "".join(lines)
+    brief = _BRIEF_HEADER + _BRIEF_PREAMBLE + "".join(lines)
     return brief, ids
 
 
