@@ -21,6 +21,9 @@ dev = [
   "build>=1.0",
 ]
 
+[project.scripts]
+rebob = "rebob.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["rebob*"]

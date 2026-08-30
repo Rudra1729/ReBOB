@@ -1,9 +1,15 @@
 {
-  "_comment": "Copy this file to .bob/mcp.json and replace <ABSOLUTE_PATH> with the full absolute path to this repo root (no trailing slash).",
+  "_comment": "Prefer: rebob init (writes .bob/mcp.json automatically with the right absolute paths for this machine). This file is a manual-setup reference only.",
   "mcpServers": {
     "rebob": {
-      "command": "python",
-      "args": ["<ABSOLUTE_PATH>/rebob/server.py"]
+      "command": "<path-to-venv>/Scripts/python.exe",
+      "args": ["-m", "rebob.server"],
+      "cwd": "<project-root>",
+      "env": {
+        "REBOB_HOME": "<project-root>/.rebob",
+        "PYTHONIOENCODING": "utf-8",
+        "PYTHONUTF8": "1"
+      }
     }
   }
 }

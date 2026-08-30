@@ -1,17 +1,14 @@
 """
-rebob/server.py — ReBOB MCP server (Phase 1 stubs).
+rebob/server.py — ReBOB MCP server.
 
-Transport: stdio — Bob is the MCP client.
-Run:  python rebob/server.py
+Transports:
+  - stdio (default): Bob spawns a process per call. Zero setup.
+  - sse / http:      persistent server, no per-call cold start. Opt-in via
+                      `rebob init --transport sse` or `rebob serve --transport sse`.
+
+Run via:  python -m rebob.server [--transport stdio|sse] [--port 8000]
+      or: rebob serve [--transport stdio|sse] [--port 8000]
 """
-
-# Ensure the repo root is on sys.path regardless of how this file is invoked
-# (e.g. `python rebob/server.py` or via MCP config with an absolute path).
-import sys as _sys
-from pathlib import Path as _Path
-_repo_root = str(_Path(__file__).resolve().parent.parent)
-if _repo_root not in _sys.path:
-    _sys.path.insert(0, _repo_root)
 
 from fastmcp import FastMCP
 
@@ -39,7 +36,7 @@ def mem_capture(
     label: str = "",
     summary: str = "",
 ) -> dict:
-    """Distil a session into memory records (stub: writes a capture file)."""
+    """Distil a session into memory records."""
     return contract.mem_capture(session_id=session_id, label=label, summary=summary)
 
 
@@ -63,5 +60,21 @@ def mem_feedback(id: str, verdict: str) -> dict:
 
 # ── entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="ReBOB MCP server")
+    parser.add_argument("--transport", choices=["stdio", "sse", "http"], default="stdio")
+    parser.add_argument("--port", type=int, default=8000)
+    args = parser.parse_args()
+
     init_db()
-    mcp.run(transport="stdio")
+
+    if args.transport == "stdio":
+        mcp.run(transport="stdio")
+    else:
+        endpoint = "sse" if args.transport == "sse" else "mcp"
+        print(
+            f"ReBOB: starting {args.transport} server on http://127.0.0.1:{args.port}/{endpoint}",
+            flush=True,
+        )
+        mcp.run(transport=args.transport, port=args.port)

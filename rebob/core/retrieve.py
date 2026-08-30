@@ -14,7 +14,7 @@ Pipeline stages:
   8. Pack   — markdown brief ≤ budget_tokens, cited IDs
   9. Log    — increment_retrieval + mark_injected
 
-Session dedup: .rebob/injected/<session_id>.json tracks IDs already sent.
+Session dedup: <rebob_home>/injected/<session_id>.json tracks IDs already sent.
 """
 
 import json
@@ -25,22 +25,19 @@ from typing import Optional
 
 import numpy as np
 
-# ---------------------------------------------------------------------------
-# Paths (monkeypatchable in tests)
-# ---------------------------------------------------------------------------
-
-_INJECTED_DIR = Path(".rebob") / "injected"
+from rebob import paths
 
 
 # ---------------------------------------------------------------------------
 # Session dedup helpers
 # ---------------------------------------------------------------------------
 
-def _injected_path(session_id: str) -> Path:
+def _injected_path(session_id: str) -> Optional[Path]:
     if not session_id:
-        return Path("/dev/null")
-    _INJECTED_DIR.mkdir(parents=True, exist_ok=True)
-    return _INJECTED_DIR / f"{session_id}.json"
+        return None
+    injected_dir = paths.injected_dir()
+    injected_dir.mkdir(parents=True, exist_ok=True)
+    return injected_dir / f"{session_id}.json"
 
 
 def load_injected(session_id: str) -> set:
@@ -48,7 +45,7 @@ def load_injected(session_id: str) -> set:
     if not session_id:
         return set()
     p = _injected_path(session_id)
-    if p == Path("/dev/null") or not p.exists():
+    if p is None or not p.exists():
         return set()
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
@@ -64,7 +61,7 @@ def mark_injected(session_id: str, ids: list) -> None:
     existing = load_injected(session_id)
     merged = sorted(existing | set(ids))
     p = _injected_path(session_id)
-    if p == Path("/dev/null"):
+    if p is None:
         return
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     p.write_text(

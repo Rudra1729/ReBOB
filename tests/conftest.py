@@ -2,21 +2,23 @@
 
 import pytest
 
-from rebob.core import api, store
-from rebob.core import retrieve as retrieve_mod
+from rebob import paths
+from rebob.core import store
 
 
 @pytest.fixture
 def rebob_tmp_home(tmp_path, monkeypatch):
-    """Isolate .rebob paths under a temporary directory."""
+    """Isolate .rebob paths under a temporary directory.
+
+    Sets REBOB_HOME so every module that resolves paths via rebob.paths
+    (store, api, retrieve, watsonx) lands in the same temp directory —
+    no more per-module monkeypatching of separate path constants.
+    """
     rebob_dir = tmp_path / ".rebob"
-    monkeypatch.setattr(store, "_DB_DIR", rebob_dir)
-    monkeypatch.setattr(store, "_DB_PATH", rebob_dir / "rebob.db")
-    monkeypatch.setattr(api, "_REBOB_DIR", rebob_dir)
-    monkeypatch.setattr(api, "_CAPTURES_DIR", rebob_dir / "captures")
-    monkeypatch.setattr(api, "_SESSIONS_DIR", rebob_dir / "sessions")
-    monkeypatch.setattr(retrieve_mod, "_INJECTED_DIR", rebob_dir / "injected")
-    return rebob_dir
+    monkeypatch.setenv("REBOB_HOME", str(rebob_dir))
+    paths.reset_cache()
+    yield rebob_dir
+    paths.reset_cache()
 
 
 @pytest.fixture

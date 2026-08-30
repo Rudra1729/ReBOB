@@ -164,7 +164,7 @@ class TestRecord:
         api.record(sample_event)
         path = rebob_tmp_home / "sessions" / "sess-1.jsonl"
         assert path.exists()
-        lines = path.read_text().strip().splitlines()
+        lines = path.read_text(encoding="utf-8").strip().splitlines()
         assert len(lines) == 1
         assert json.loads(lines[0]) == sample_event
 
@@ -172,7 +172,7 @@ class TestRecord:
         api.record(sample_event)
         api.record({**sample_event, "prompt": "world"})
         path = rebob_tmp_home / "sessions" / "sess-1.jsonl"
-        assert len(path.read_text().strip().splitlines()) == 2
+        assert len(path.read_text(encoding="utf-8").strip().splitlines()) == 2
 
     def test_uses_unknown_session_when_missing(self, rebob_tmp_home):
         api.record({"type": "tool", "tool": "read"})

@@ -9,9 +9,9 @@ import re
 import secrets
 from datetime import datetime, timezone
 
-from dotenv import load_dotenv
+from rebob import config
 
-load_dotenv()
+config.load_env()
 
 
 # ---------------------------------------------------------------------------
