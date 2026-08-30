@@ -17,9 +17,22 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
+# Hosted/cloud env from the developer shell must not leak into local hook
+# subprocess tests (those assert on jsonl files under REBOB_HOME).
+_HOSTED_ENV_KEYS = (
+    "REBOB_SERVER_URL",
+    "REBOB_API_TOKEN",
+    "REBOB_BACKEND",
+    "DATABASE_URL",
+)
+
 
 def run_hook(argv_tail, stdin_text, cwd, rebob_home):
     env = {**os.environ, "REBOB_HOME": str(rebob_home), "PYTHONPATH": str(REPO_ROOT)}
+    for key in _HOSTED_ENV_KEYS:
+        env.pop(key, None)
+    # Prefer local record() even if keyring has a saved server URL.
+    env["REBOB_FORCE_LOCAL"] = "1"
     return subprocess.run(
         [sys.executable, "-m", "rebob.hook", *argv_tail],
         input=stdin_text,

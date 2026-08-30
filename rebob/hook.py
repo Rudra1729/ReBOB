@@ -38,6 +38,10 @@ def _log_debug_error() -> None:
 
 
 def _use_hosted() -> bool:
+    # Tests / explicit local installs can force in-process record() even when
+    # keyring or the shell still has a saved hosted URL.
+    if os.environ.get("REBOB_FORCE_LOCAL") == "1":
+        return False
     from rebob.credentials import get_server_url
 
     return bool(os.environ.get("REBOB_SERVER_URL") or get_server_url())

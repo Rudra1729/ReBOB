@@ -32,10 +32,13 @@ def normalize_repo_url(url: str) -> str:
 def visibility_clause(alias: str = "m") -> str:
     """SQL fragment enforcing project/personal/org visibility for the current author/repo."""
     a = alias
+    # COALESCE so NULL repo_url in the row matches an empty current repo
+    # (common for inserts that omit repo_url).
     return f"""
       (
         {a}.visibility = 'org'
-        OR ({a}.visibility = 'project' AND {a}.repo_url = %(repo_url)s)
+        OR ({a}.visibility = 'project'
+            AND COALESCE({a}.repo_url, '') = %(repo_url)s)
         OR ({a}.visibility = 'personal' AND {a}.author_id = %(author_id)s)
         OR ({a}.visibility IS NULL)
       )

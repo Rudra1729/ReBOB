@@ -225,11 +225,15 @@ class PostgresBackend:
     def _setup_rls(self, conn) -> None:
         for table in ("memory", "embeddings", "sessions"):
             conn.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
+            # Table owners bypass RLS unless FORCE is set — required so
+            # app roles that own the schema still get tenant isolation.
+            conn.execute(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
             conn.execute(f"DROP POLICY IF EXISTS tenant_isolation ON {table}")
             conn.execute(
                 f"""
                 CREATE POLICY tenant_isolation ON {table}
                   USING (org_id = current_setting('rebob.org_id', true)::uuid)
+                  WITH CHECK (org_id = current_setting('rebob.org_id', true)::uuid)
                 """
             )
 
@@ -424,27 +428,27 @@ class PostgresBackend:
     def fts_search(self, query: str, limit: int = 30) -> list:
         from rebob.core.tenancy import visibility_clause
 
-        tokens = query.strip().split()
-        if not tokens:
+        q = query.strip()
+        if not q:
             return []
-        ts_query = " | ".join(tokens)
-        params = {**self._visibility_params(), "ts_query": ts_query, "limit": limit}
+        # plainto_tsquery tolerates user text; to_tsquery('a | b') fails on
+        # punctuation and was previously swallowed into an empty result.
+        params = {**self._visibility_params(), "ts_query": q, "limit": limit}
         with self._connection() as conn:
-            try:
-                rows = conn.execute(
-                    f"""
-                    SELECT m.*
-                    FROM memory m
-                    WHERE m.search_vector @@ to_tsquery('english', %(ts_query)s)
-                      AND m.status = 'active'
-                      AND {visibility_clause('m')}
-                    ORDER BY ts_rank(m.search_vector, to_tsquery('english', %(ts_query)s)) DESC
-                    LIMIT %(limit)s
-                    """,
-                    params,
-                ).fetchall()
-            except Exception:
-                rows = []
+            rows = conn.execute(
+                f"""
+                SELECT m.*
+                FROM memory m
+                WHERE m.search_vector @@ plainto_tsquery('english', %(ts_query)s)
+                  AND m.status = 'active'
+                  AND {visibility_clause('m')}
+                ORDER BY ts_rank(
+                    m.search_vector, plainto_tsquery('english', %(ts_query)s)
+                ) DESC
+                LIMIT %(limit)s
+                """,
+                params,
+            ).fetchall()
         return [dict(r) for r in rows]
 
     def increment_retrieval(self, ids: list) -> None:
