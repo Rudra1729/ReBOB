@@ -109,12 +109,22 @@ def embed(text: str) -> list:
 
 
 def generate(prompt: str, *, max_tokens: int = 2048, temperature: float = 0.1) -> str:
-    """Generate text with Granite via watsonx.ai. Returns the generated string."""
+    """Generate text with Granite via watsonx.ai's chat API. Returns the generated string.
+
+    Uses model.chat(), not the deprecated completion endpoint (model.generate_text(),
+    /ml/v1/text/generation). ibm/granite-4-h-small is an instruct-tuned model: fed a long,
+    structured, few-shot completion-style prompt through the raw completion API, it reliably
+    emits a single eos_token and stops — zero content tokens, empty string, no error. The
+    chat API (the one watsonx's own deprecation warning on the completion endpoint points at)
+    returns full content for the identical prompt. Silent-empty-string failures here read as
+    "no signal in this session" at every caller up the stack (extract -> validate_records ->
+    resolve -> mem_capture's {"added": 0}), so this bug is invisible unless you inspect the
+    raw API response directly.
+    """
     cfg = _load_config()
 
     from ibm_watsonx_ai import Credentials
     from ibm_watsonx_ai.foundation_models import ModelInference
-    from ibm_watsonx_ai.metanames import GenTextParamsMetaNames as Params
 
     credentials = Credentials(
         url=cfg["WATSONX_URL"],
@@ -124,14 +134,12 @@ def generate(prompt: str, *, max_tokens: int = 2048, temperature: float = 0.1) -
         model_id=cfg["llm_model"],
         credentials=credentials,
         project_id=cfg["WATSONX_PROJECT_ID"],
-        params={
-            Params.MAX_NEW_TOKENS: max_tokens,
-            Params.TEMPERATURE: temperature,
-            Params.DECODING_METHOD: "greedy",
-        },
     )
-    response = model.generate_text(prompt=prompt)
-    return response if isinstance(response, str) else str(response)
+    response = model.chat(
+        messages=[{"role": "user", "content": prompt}],
+        params={"max_tokens": max_tokens, "temperature": temperature},
+    )
+    return response["choices"][0]["message"]["content"]
 
 
 def rerank(query: str, documents: list, *, top_n: int = 20) -> list:
