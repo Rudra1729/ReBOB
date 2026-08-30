@@ -75,7 +75,7 @@ def resolve(records: list[dict]) -> dict:
             store.update_memory(existing["id"], {"status": "superseded"})
 
             embedding = watsonx.embed(content)
-            vector_row = store.append_vector(embedding)
+            embedding_id = store.store_embedding(embedding)
 
             new_id = "mem_" + secrets.token_hex(4)
             _insert_row(
@@ -84,7 +84,7 @@ def resolve(records: list[dict]) -> dict:
                 claim_key,
                 rec,
                 content,
-                vector_row,
+                embedding_id,
                 version=new_version,
                 supersedes=existing["id"],
             )
@@ -94,10 +94,10 @@ def resolve(records: list[dict]) -> dict:
         else:
             # No existing record — ADD
             embedding = watsonx.embed(content)
-            vector_row = store.append_vector(embedding)
+            embedding_id = store.store_embedding(embedding)
 
             new_id = "mem_" + secrets.token_hex(4)
-            _insert_row(store, new_id, claim_key, rec, content, vector_row)
+            _insert_row(store, new_id, claim_key, rec, content, embedding_id)
             ids.append(new_id)
             added += 1
 
@@ -118,10 +118,27 @@ def _insert_row(
     claim_key: str,
     rec: dict,
     content: str,
-    vector_row: int,
+    embedding_id: str,
     version: int = 1,
     supersedes: str | None = None,
 ) -> None:
+    import os
+
+    from rebob.core.context import get_context
+    from rebob.core.tenancy import normalize_repo_url
+
+    ctx = get_context()
+    repo_url = normalize_repo_url(
+        rec.get("repo_url")
+        or os.environ.get("REBOB_REPO_URL", "")
+        or (ctx.repo_url if ctx else "")
+    )
+    branch = rec.get("branch") or os.environ.get("REBOB_BRANCH", "") or (ctx.branch if ctx else "")
+    author_id = (
+        rec.get("author_id")
+        or os.environ.get("REBOB_AUTHOR_ID", "")
+        or (ctx.author_id if ctx else "")
+    )
     row = {
         "id": new_id,
         "claim_key": claim_key,
@@ -135,6 +152,10 @@ def _insert_row(
         "rationale": rec.get("rationale", ""),
         "counter_example": rec.get("counter_example"),
         "scope": rec.get("scope", "repo"),
+        "visibility": rec.get("visibility", "project"),
+        "repo_url": repo_url,
+        "branch": branch,
+        "author_id": author_id,
         "source_kind": rec.get("source_kind", "hook_session"),
         "task_id": rec.get("task_id", ""),
         "extractor_model": os.getenv("WATSONX_LLM_MODEL", "ibm/granite-4-h-small"),
@@ -142,13 +163,24 @@ def _insert_row(
         "evidence_count": 1,
         "volatility": rec.get("volatility", "durable"),
         "verification": "asserted",
-        "anchor_valid": 1,
+        "anchor_valid": True,
         "usefulness": 0.5,
         "sensitivity": "internal",
-        "pinned": 0,
-        "vector_row": vector_row,
+        "pinned": False,
+        "embedding_id": embedding_id,
         "file_paths": rec.get("file_paths", []),
         "keywords": rec.get("keywords", []),
         "redaction_applied": rec.get("redaction_applied", []),
     }
+    if ctx and ctx.org_id:
+        row["org_id"] = ctx.org_id
+    else:
+        try:
+            from rebob.core.storage import get_backend
+
+            org = getattr(get_backend(), "_org_id", None)
+            if org:
+                row["org_id"] = org
+        except Exception:
+            pass
     store_mod.insert_memory(row)

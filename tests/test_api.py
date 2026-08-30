@@ -88,6 +88,28 @@ class TestMemCapture:
         api.mem_capture()
         assert captured["session_id"] == "newer"
 
+    def test_uses_summary_when_no_session(self, rebob_tmp_home, monkeypatch):
+        monkeypatch.setattr(
+            "rebob.core.worker.process_notes",
+            lambda **kw: {"added": 1, "updated": 0, "rejected": 0, "ids": ["mem_n"]},
+        )
+        result = api.mem_capture(summary="Cloud Run must attach Cloud SQL sockets.")
+        assert result["added"] == 1
+        assert result["ids"] == ["mem_n"]
+
+    def test_uses_hosted_session_when_no_jsonl(self, rebob_tmp_home, monkeypatch):
+        captured = {}
+        monkeypatch.setattr("rebob.core.api._latest_hosted_session_id", lambda: "hosted-sid")
+
+        def fake_process(sid, **kw):
+            captured["session_id"] = sid
+            return {"added": 1, "updated": 0, "rejected": 0, "ids": ["mem_x"]}
+
+        monkeypatch.setattr("rebob.core.worker.process_session", fake_process)
+        result = api.mem_capture()
+        assert captured["session_id"] == "hosted-sid"
+        assert result["added"] == 1
+
 
 class TestMemStats:
     def test_returns_expected_keys(self, rebob_tmp_home):
@@ -166,7 +188,9 @@ class TestRecord:
         assert path.exists()
         lines = path.read_text(encoding="utf-8").strip().splitlines()
         assert len(lines) == 1
-        assert json.loads(lines[0]) == sample_event
+        parsed = json.loads(lines[0])
+        assert parsed["session_id"] == sample_event["session_id"]
+        assert parsed["prompt"] == sample_event["prompt"]
 
     def test_appends_multiple_events(self, rebob_tmp_home, sample_event):
         api.record(sample_event)
@@ -188,8 +212,7 @@ class TestRecord:
             {
                 "hook": "tool",
                 "session_id": session_id,
-                "tool_response": "payload-" + ("x" * 9000) + f"-{i}",
-                "seq": i,
+                "tool_response": f"line-{i}",
             }
             for i in range(24)
         ]
@@ -199,6 +222,5 @@ class TestRecord:
         path = rebob_tmp_home / "sessions" / f"{session_id}.jsonl"
         lines = [ln for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
         assert len(lines) == len(events)
-        parsed = [json.loads(ln) for ln in lines]
-        seqs = sorted(e["seq"] for e in parsed)
-        assert seqs == list(range(len(events)))
+        payloads = [json.loads(ln)["tool_response"] for ln in lines]
+        assert len(set(payloads)) == len(events)

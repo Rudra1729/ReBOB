@@ -67,21 +67,81 @@ def process_session(
     explicit=True forces salience=1.0 (used by /mem mem_capture).
     """
     jsonl_path = _sessions_dir() / f"{session_id}.jsonl"
-    if not jsonl_path.exists():
+    transcript = None
+
+    if jsonl_path.exists():
+        try:
+            from rebob.core.assemble import assemble  # type: ignore[import]
+            transcript = assemble(session_id, jsonl_path)
+        except ImportError:
+            transcript = _assemble_fallback(session_id, jsonl_path)
+    else:
+        try:
+            from rebob.core.storage import get_backend
+
+            backend = get_backend()
+            if hasattr(backend, "get_session_events"):
+                events = backend.get_session_events(session_id)
+                if events:
+                    transcript = events
+        except Exception as exc:
+            return {
+                "added": 0,
+                "updated": 0,
+                "rejected": 0,
+                "ids": [],
+                "error": f"session lookup failed: {exc}",
+            }
+
+    if not transcript:
         return {"added": 0, "updated": 0, "rejected": 0, "ids": [], "error": "session not found"}
 
-    # 1. ASSEMBLE
-    try:
-        from rebob.core.assemble import assemble  # type: ignore[import]
-        transcript = assemble(session_id, jsonl_path)
-    except ImportError:
-        transcript = _assemble_fallback(session_id, jsonl_path)
+    return distill_transcript(
+        transcript, session_id, explicit=explicit, label=label, summary=summary
+    )
 
-    # 2. REDACT
+
+def process_notes(
+    *,
+    session_id: str,
+    label: str = "",
+    summary: str = "",
+) -> dict:
+    """Distil an explicit /mem note when no hook session was recorded."""
+    notes = " ".join(part for part in (summary, label) if part).strip()
+    if not notes:
+        return {"added": 0, "updated": 0, "rejected": 0, "ids": [], "error": "no session found"}
+    transcript = [
+        {
+            "turn": 1,
+            "type": "prompt",
+            "session_id": session_id,
+            "prompt": label or "explicit memory capture",
+        },
+        {
+            "turn": 2,
+            "type": "stop",
+            "session_id": session_id,
+            "last_assistant_message": summary or notes,
+        },
+    ]
+    return distill_transcript(
+        transcript, session_id, explicit=True, label=label, summary=summary
+    )
+
+
+def distill_transcript(
+    transcript: list[dict],
+    session_id: str,
+    *,
+    explicit: bool = False,
+    label: str = "",
+    summary: str = "",
+) -> dict:
     from rebob.core.redact import redact_transcript
+
     transcript = redact_transcript(transcript)
 
-    # 3. SALIENCE
     if explicit:
         salience = 1.0
     else:
@@ -91,17 +151,17 @@ def process_session(
         except ImportError:
             salience = _score_fallback(transcript, explicit=False)
 
-    # 4 + 5. EXTRACT (includes validate inside extract)
     from rebob.core.extract import extract
-    raw_records = extract(transcript, salience)
 
-    # Attach session context
+    raw_records = extract(transcript, salience)
     for r in raw_records:
         r.setdefault("task_id", session_id)
         r.setdefault("source_kind", "explicit_mem" if explicit else "hook_session")
+        if label:
+            r.setdefault("snippet", label)
 
-    # 6. RESOLVE (embed + store inside)
     from rebob.core.resolve import resolve
+
     return resolve(raw_records)
 
 

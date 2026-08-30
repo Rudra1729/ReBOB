@@ -21,7 +21,37 @@ config.load_env()
 # ---------------------------------------------------------------------------
 
 def _load_config() -> dict:
-    """Read required env vars; raise a clear error if any are missing."""
+    """Read watsonx config from tenant context (hosted) or local .env."""
+    from rebob.core.context import get_context
+
+    org_id = ""
+    ctx = get_context()
+    if ctx and ctx.org_id:
+        org_id = ctx.org_id
+    if not org_id:
+        try:
+            from rebob.core.storage import get_backend
+
+            backend = get_backend()
+            org_id = getattr(backend, "_org_id", "") or ""
+        except Exception:
+            org_id = ""
+    if org_id:
+        try:
+            from rebob.core.auth import get_org_watsonx_config
+
+            tenant = get_org_watsonx_config(org_id)
+            if tenant:
+                tenant["llm_model"] = os.getenv(
+                    "WATSONX_LLM_MODEL", "ibm/granite-4-h-small"
+                )
+                tenant["embed_model"] = os.getenv(
+                    "WATSONX_EMBEDDING_MODEL",
+                    "ibm/granite-embedding-278m-multilingual",
+                )
+                return tenant
+        except Exception:
+            pass
     return config.get_settings()
 
 

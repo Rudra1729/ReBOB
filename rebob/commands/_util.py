@@ -49,19 +49,21 @@ def hook_command(python: Path, hook_type: str) -> str:
     return f"{quote_cmd(python)} -m rebob.hook {hook_type}"
 
 
-def build_settings(python: Path) -> dict:
+def build_settings(python: Path, *, server_url: str = "", api_token: str = "") -> dict:
     """Build Bob settings.json hook config with JSON-safe command strings."""
 
     def hook_entry(hook_type: str, timeout: int) -> dict:
-        return {
-            "hooks": [
-                {
-                    "type": "command",
-                    "command": hook_command(python, hook_type),
-                    "timeout": timeout,
-                }
-            ]
+        hook: dict = {
+            "type": "command",
+            "command": hook_command(python, hook_type),
+            "timeout": timeout,
         }
+        if server_url:
+            env = {"REBOB_SERVER_URL": server_url.rstrip("/")}
+            if api_token:
+                env["REBOB_API_TOKEN"] = api_token
+            hook["env"] = env
+        return {"hooks": [hook]}
 
     return {
         "hooks": {
@@ -72,13 +74,36 @@ def build_settings(python: Path) -> dict:
     }
 
 
-def build_mcp(python: Path, project_root: Path, *, transport: str = "stdio", port: int = 8000) -> dict:
+def build_mcp(
+    python: Path,
+    project_root: Path,
+    *,
+    transport: str = "stdio",
+    port: int = 8000,
+    server_url: str = "",
+    api_token: str = "",
+) -> dict:
     """Build Bob mcp.json using module launch (portable across installs).
 
     REBOB_HOME is set explicitly in the env block so the server finds the
     right data directory regardless of what cwd Bob actually launches it
     with — belt and braces alongside the `cwd` field.
     """
+    if server_url:
+        url = server_url.rstrip("/") + "/mcp"
+        token = api_token
+        if not token:
+            try:
+                from rebob.credentials import get_token
+
+                token = get_token()
+            except Exception:
+                token = ""
+        server_entry: dict = {"url": url}
+        if token:
+            server_entry["headers"] = {"Authorization": f"Bearer {token}"}
+        return {"mcpServers": {"rebob": server_entry}}
+
     rebob_home = str((project_root / ".rebob").resolve())
     env = {
         "REBOB_HOME": rebob_home,

@@ -33,6 +33,30 @@ def mem_search(
         return ""
 
 
+def _latest_jsonl_session_id() -> str:
+    sessions_dir = paths.sessions_dir()
+    if not sessions_dir.exists():
+        return ""
+    jsonl_files = sorted(
+        sessions_dir.glob("*.jsonl"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    return jsonl_files[0].stem if jsonl_files else ""
+
+
+def _latest_hosted_session_id() -> str:
+    try:
+        from rebob.core.storage import get_backend
+
+        backend = get_backend()
+        if hasattr(backend, "latest_session_id"):
+            return backend.latest_session_id() or ""
+    except Exception:
+        return ""
+    return ""
+
+
 def mem_capture(
     session_id: str = "",
     label: str = "",
@@ -40,24 +64,27 @@ def mem_capture(
 ) -> dict:
     """Distil a session into memory records via the real write-path pipeline.
 
-    If session_id is empty, uses the most recently modified .jsonl in .rebob/sessions/.
+    If session_id is empty, uses the newest local .jsonl, then (hosted) the
+    newest Postgres session for the authenticated org.
     """
     from rebob.core.worker import process_session
 
-    sid = session_id
+    sid = session_id or _latest_jsonl_session_id() or _latest_hosted_session_id()
     if not sid:
-        sessions_dir = paths.sessions_dir()
-        if sessions_dir.exists():
-            jsonl_files = sorted(
-                sessions_dir.glob("*.jsonl"),
-                key=lambda p: p.stat().st_mtime,
-                reverse=True,
-            )
-            if jsonl_files:
-                sid = jsonl_files[0].stem
+        notes = " ".join(part for part in (summary, label) if part).strip()
+        if not notes:
+            return {
+                "added": 0,
+                "updated": 0,
+                "rejected": 0,
+                "ids": [],
+                "error": "no session found",
+            }
+        from rebob.core.worker import process_notes
 
-    if not sid:
-        return {"added": 0, "updated": 0, "rejected": 0, "ids": [], "error": "no session found"}
+        return process_notes(
+            session_id="explicit-mem", label=label, summary=summary
+        )
 
     return process_session(sid, explicit=True, label=label, summary=summary)
 
@@ -179,10 +206,13 @@ def _append_line_locked_os(f, line: str) -> None:
 
 def record(event: dict) -> None:
     """Persist a lifecycle event emitted by the hook."""
-    session_id = event.get("session_id", "unknown")
+    from rebob.core.events import sanitize_event
+
+    clean = sanitize_event(event)
+    session_id = clean.get("session_id", "unknown")
     sessions_dir = paths.sessions_dir()
     sessions_dir.mkdir(parents=True, exist_ok=True)
     path = sessions_dir / f"{session_id}.jsonl"
-    line = json.dumps(event) + "\n"
+    line = json.dumps(clean) + "\n"
     with path.open("a", encoding="utf-8") as f:
         _append_line_locked(f, line)

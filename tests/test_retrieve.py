@@ -184,12 +184,12 @@ class TestRetrieveFTSHit:
 class TestRetrieveDenseHit:
     def test_dense_path_ranks_by_cosine(self, initialized_db, mock_rerank):
         """Insert a memory with a stored vector and confirm dense path picks it up."""
-        # Append a vector matching our mock embed direction [1,0,0]
-        vrow = store.append_vector([1.0, 0.0, 0.0])
+        # Store a vector matching our mock embed direction [1,0,0]
+        emb_id = store.store_embedding([1.0, 0.0, 0.0])
         mid = _insert_memory(
             initialized_db,
             content="Dense memory target",
-            vector_row=vrow,
+            embedding_id=emb_id,
         )
         with patch("rebob.core.watsonx.embed", return_value=[1.0, 0.0, 0.0]):
             result = retrieve("dense target", session_id="sess-dense")

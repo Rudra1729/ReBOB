@@ -1,6 +1,7 @@
 """Integration-style tests for the write path (watsonx mocked)."""
 
 import json
+import sqlite3
 from pathlib import Path
 from unittest.mock import patch
 
@@ -80,7 +81,8 @@ class TestPipeline:
         ):
             process_session("fixture-session-001", explicit=True)
 
-        con = store._connect()
+        con = sqlite3.connect(store.db_path())
+        con.row_factory = sqlite3.Row
         rows = con.execute("SELECT content, rationale FROM memory").fetchall()
         con.close()
         for row in rows:
