@@ -330,6 +330,19 @@ IBM Code Engine (scales to zero, HTTPS built in, straightforward for a FastAPI/F
 Secrets in Code Engine secrets, not env files in the image. Terraform or a documented deploy
 script — not click-ops, or nobody else can redeploy it.
 
+**Known blocker, hit 2026-08-30 (unresolved):** Code Engine project creation fails on this
+account — CLI returns "This action is forbidden," UI returns "An internal error occurred."
+Root cause: the `watsonx-Hackathon-Access` IAM group holds **Code Engine Manager**, but the
+**Default** resource group access is only **Viewer**, and CE project creation needs
+Editor/Operator on the resource group it's created in. This is an account-admin-only fix — no
+amount of CLI flag-juggling gets around it from inside the group's current permissions. Blocks
+every downstream deploy step (image build/push, Postgres+pgvector provisioning, secrets, app
+create) until resolved. Two ways to unblock: (a) an admin raises Default to Editor/Operator for
+the group, or (b) an admin creates the CE project (`rebob-project`) directly and hands over
+Editor rights to it specifically, which is the more targeted, less-hackathon-account-wide ask.
+Already confirmed working: IBM Cloud SSO login, region `us-south`, CE + CR CLI plugins, CR
+namespace `rebob-ns`, resource group targeted to Default.
+
 ### Phase 8 — Operations
 Per-tenant quotas and rate limits (§2.7 — server-side watsonx calls are now *your* bill).
 Structured logging with tenant/session IDs and **no memory content in logs**. Metrics:
